@@ -1,20 +1,17 @@
 # utils/authorization.py
 from datetime import datetime, timedelta
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi import HTTPException
 from app.config import API_KEY
 from app.dao.UserDAO import UserDAO
+import bcrypt
 
 # Configuración
 SECRET_KEY = API_KEY  # En producción usar variable de entorno
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
-
-# Para hashear contraseñas con bcrypt
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Para extraer el token del header
 security = HTTPBearer()
@@ -23,11 +20,11 @@ dao = UserDAO()
 
 def hash_password(password: str) -> str:
     """Hashea una contraseña con bcrypt"""
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica si la contraseña coincide con el hash"""
-    return pwd_context.verify(plain_password, hashed_password)
+    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     """Genera un token JWT"""

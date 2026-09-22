@@ -100,5 +100,9 @@ def get_stats():
 def raiz():
     return {"mensaje": "Trading API v2 - Con autenticación"}
 
+@app.get("/health")
+def health_check():
+    return {"status": "ok"}
+
 TradingConnection().init_db()
 IntensiveReviewConnection().init_db()

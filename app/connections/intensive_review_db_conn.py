@@ -1,12 +1,14 @@
+#app/connections/intensive_review_db_conn.py
+
 import os
 import sqlite3
 
 class IntensiveReviewConnection:
-    __DB_PATH = "data/intensive_review.db"
+    DB_PATH = "data/intensive_review.db"
 
     def get_connection(self):
         """Obtiene una conexión a la base de datos"""
-        conn = sqlite3.connect(self.__DB_PATH)
+        conn = sqlite3.connect(self.DB_PATH)
         conn.row_factory = sqlite3.Row  # Permite acceder a columnas por nombre
         return conn
 

@@ -4,11 +4,11 @@ import sqlite3
 
 class TradingConnection:
     # Ruta de la base de datos
-    __DB_PATH = "data/trading.db"
+    DB_PATH = "data/trading.db"
 
     def get_connection(self):
         """Obtiene una conexión a la base de datos"""
-        conn = sqlite3.connect(self.__DB_PATH)
+        conn = sqlite3.connect(self.DB_PATH)
         conn.row_factory = sqlite3.Row  # Permite acceder a columnas por nombre
         conn.execute("PRAGMA foreign_keys = ON")  # Activar foreign keys
         return conn
