@@ -6,6 +6,8 @@ from fastapi.exceptions import RequestValidationError
 from app.routers.trades import router as trades_router
 from app.routers.intensive_review import router as intensive_review_router
 from app.routers.users import router as users_router
+from app.routers.precios import router as precios_router
+from app.routers.analisis import router as analisis_router
 from app.connections.intensive_review_db_conn import IntensiveReviewConnection
 from app.connections.trading_db_conn import TradingConnection
 
@@ -19,6 +21,12 @@ app.include_router(intensive_review_router)
 
 #Registrar router de usuarios
 app.include_router(users_router)
+
+#Registrar router de precios
+app.include_router(precios_router)
+
+#Registrar router de analisis
+app.include_router(analisis_router)
 
 # Diccionario para contar requests
 request_counts = {}
