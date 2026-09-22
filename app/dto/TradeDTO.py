@@ -1,10 +1,9 @@
-# app/models.py
+# app/dto/TradeDTO.py
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 
 # Modelo para CREAR un trade (entrada)
 class TradeCreate(BaseModel):
-    usuario_id: int = Field(..., description="id del usuario logueado")
     tipo: str = Field(..., description="Tipo de trade: 'compra' o 'venta'")
     activo: str = Field(..., min_length=1, max_length=10, description="Símbolo del activo")
     precio: float = Field(..., gt=0, description="Precio del trade, debe ser > 0")

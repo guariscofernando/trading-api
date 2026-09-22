@@ -25,17 +25,14 @@ request_counts = {}
 
 # Manejador global de errores de validación
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(
-    request: Request,
-    exc: RequestValidationError
-):
-    return JSONResponse(
-        status_code=422,
-        content={
-            "error": "Datos inválidos",
-            "detalles": exc.errors()
-        }
-    )
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    errores = []
+    for error in exc.errors():
+        error_limpio = dict(error)
+        if "ctx" in error_limpio and "error" in error_limpio["ctx"]:
+            error_limpio["ctx"] = {"error": str(error_limpio["ctx"]["error"])}
+        errores.append(error_limpio)
+    return JSONResponse(status_code=422, content={"detail": errores})
 
 
 # Manejador global de errores inesperados
