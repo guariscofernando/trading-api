@@ -7,28 +7,40 @@ from app.dto.TradeDTO import TradeCreate, TradeResponse, TradeUpdate
 from app.dao.TradeDAO import TradeDAO
 from datetime import datetime
 from typing import List, Optional
-from utils.authorization import verificar_api_key
+from utils.authorization import get_current_user
 
 router = APIRouter(prefix="/trades", tags=["Trades"])
 dao = TradeDAO()
 
-# READ (listar)
+# READ (protegido - solo ver trades propios)
 @router.get("/", response_model=List[TradeResponse])
 def listar_trades(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     tipo: Optional[str] = None,
-    activo: Optional[str] = None
+    activo: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
 ):
-    return dao.obtener_trades_db(skip=skip, limit=limit, tipo=tipo, activo=activo)
+    """Listar trades del usuario autenticado"""
+    return dao.obtener_trades_db(
+        usuario_id=current_user["id"],
+        skip=skip,
+        limit=limit,
+        tipo=tipo,
+        activo=activo
+    )
    
-# CREATE
-@router.post("/", response_model=TradeResponse, status_code=201, dependencies=[Depends(verificar_api_key)])
-def crear_trade(trade: TradeCreate):
+# CREATE (protegido)
+@router.post("/", response_model=TradeResponse, status_code=201)
+def crear_trade(
+    trade: TradeCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Crear un trade (requiere autenticación)"""
     fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
     
     trade_id = dao.crear_trade_db(
-        usuario_id=trade.usuario_id,
+        usuario_id=current_user["id"],
         tipo=trade.tipo,
         activo=trade.activo.upper(),
         precio=trade.precio,
@@ -38,7 +50,7 @@ def crear_trade(trade: TradeCreate):
     
     return {
         "id": trade_id,
-        "usuario_id": trade.usuario_id,
+        "usuario_id": current_user["id"],
         "tipo": trade.tipo,
         "activo": trade.activo.upper(),
         "precio": trade.precio,
@@ -241,15 +253,23 @@ def obtener_trade(trade_id: int):
         raise HTTPException(status_code=404, detail="Trade no encontrado")
     return trade
 
-# UPDATE
-@router.patch("/{trade_id}", response_model=TradeResponse, dependencies=[Depends(verificar_api_key)])
-def actualizar_trade(trade_id: int, trade_update: TradeUpdate):
-    # Verificar que el trade existe
+# UPDATE (protegido)
+@router.patch("/{trade_id}", response_model=TradeResponse)
+def actualizar_trade(
+    trade_id: int,
+    trade_update: TradeUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Actualizar un trade (solo si es del usuario autenticado)"""
     trade = dao.obtener_trade_db(trade_id)
+    
     if not trade:
         raise HTTPException(status_code=404, detail="Trade no encontrado")
     
-    # Actualizar solo los campos que se enviaron
+    # Verificar que el trade pertenezca al usuario
+    if trade["usuario_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
+    
     campos_a_actualizar = {}
     if trade_update.tipo is not None:
         campos_a_actualizar["tipo"] = trade_update.tipo
@@ -263,15 +283,22 @@ def actualizar_trade(trade_id: int, trade_update: TradeUpdate):
     if campos_a_actualizar:
         dao.actualizar_trade_db(trade_id, **campos_a_actualizar)
     
-    # Devolver el trade actualizado
     return dao.obtener_trade_db(trade_id)
 
-# DELETE
-@router.delete("/{trade_id}", dependencies=[Depends(verificar_api_key)])
-def eliminar_trade(trade_id: int):
+# DELETE (protegido)
+@router.delete("/{trade_id}")
+def eliminar_trade(
+    trade_id: int,
+    current_user: dict = Depends(get_current_user)
+):
+    """Eliminar un trade (solo si es del usuario autenticado)"""
     trade = dao.obtener_trade_db(trade_id)
+    
     if not trade:
         raise HTTPException(status_code=404, detail="Trade no encontrado")
+    
+    if trade["usuario_id"] != current_user["id"]:
+        raise HTTPException(status_code=403, detail="No autorizado")
     
     dao.eliminar_trade_db(trade_id)
     return {"mensaje": f"Trade {trade_id} eliminado"}

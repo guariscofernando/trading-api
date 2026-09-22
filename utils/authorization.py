@@ -1,13 +1,70 @@
-import hashlib
-
-from fastapi import HTTPException, Header
+# utils/authorization.py
+from datetime import datetime, timedelta
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from fastapi import HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import HTTPException
 from app.config import API_KEY
+from app.dao.UserDAO import UserDAO
 
-def verificar_api_key(x_api_key: str = Header(None)):
-    if x_api_key != API_KEY:
-        raise HTTPException(status_code=401, detail="API Key inválida")
+# Configuración
+SECRET_KEY = API_KEY  # En producción usar variable de entorno
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60
+
+# Para hashear contraseñas con bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Para extraer el token del header
+security = HTTPBearer()
+
+dao = UserDAO()
 
 def hash_password(password: str) -> str:
-    """Hashea una contraseña usando SHA-256"""
-    # NOTA: En producción real usarías bcrypt, pero para aprender SHA-256 está bien
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hashea una contraseña con bcrypt"""
+    return pwd_context.hash(password)
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verifica si la contraseña coincide con el hash"""
+    return pwd_context.verify(plain_password, hashed_password)
+
+def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
+    """Genera un token JWT"""
+    to_encode = data.copy()
+    
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def decode_access_token(token: str) -> dict:
+    """Decodifica un token JWT"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Dependencia que extrae y valida el usuario actual"""
+    token = credentials.credentials
+    payload = decode_access_token(token)
+    
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
+    
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="Token inválido")
+    
+    usuario = dao.obtener_usuario_por_id(int(user_id))
+    
+    if usuario is None:
+        raise HTTPException(status_code=401, detail="Usuario no encontrado")
+    
+    return usuario
