@@ -4,11 +4,21 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from app.routers.trades import router as trades_router
+from app.routers.intensive_review import router as intensive_review_router
+from app.routers.users import router as users_router
+from app.connections.intensive_review_db_conn import IntensiveReviewConnection
+from app.connections.trading_db_conn import TradingConnection
 
 app = FastAPI(title="Trading API", version="1.0.0")
 
 # Registrar router de trades
 app.include_router(trades_router)
+
+#Registrar router de intensive_review
+app.include_router(intensive_review_router)
+
+#Registrar router de usuarios
+app.include_router(users_router)
 
 # Diccionario para contar requests
 request_counts = {}
@@ -85,3 +95,10 @@ def get_stats():
     return {
         "requests": request_counts
     }
+
+@app.get("/")
+def raiz():
+    return {"mensaje": "Trading API v2 - Con autenticación"}
+
+TradingConnection().init_db()
+IntensiveReviewConnection().init_db()
