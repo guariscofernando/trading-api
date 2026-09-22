@@ -1,42 +1,50 @@
-# Trading API
+# Trading API v2
 
-API REST para gestionar trades de trading.
+API REST completa para gestionar trades de trading con autenticación JWT.
+
+## Features
+- ✅ Registro y login de usuarios
+- ✅ Autenticación con JWT
+- ✅ CRUD de trades (protegido por usuario)
+- ✅ Precios en tiempo real (CoinGecko API)
+- ✅ Análisis de P&L con precios actuales
+- ✅ Tests con Pytest
+- ✅ Deploy en Render.com
 
 ## Tecnologías
 - Python 3.12
 - FastAPI
 - SQLite
+- JWT (python-jose)
+- bcrypt (passlib)
+- Pytest
+- httpx
 
 ## Endpoints
 
-### Trades
-- `POST /trades/` - Crear un nuevo trade
-- `GET /trades/` - Listar trades (con filtros)
-- `GET /trades/{id}` - Obtener un trade específico
-- `PATCH /trades/{id}` - Actualizar un trade
-- `DELETE /trades/{id}` - Eliminar un trade
+### Autenticación
+- `POST /usuarios/registro` - Registrar usuario
+- `POST /usuarios/login` - Login (devuelve JWT)
 
-### Análisis
-- `GET /trades/resumen/pnl` - Calcular P&L total
-- `GET /trades/estadisticas` - Estadísticas generales
+### Trades (requiere JWT)
+- `POST /trades/` - Crear trade
+- `GET /trades/` - Listar trades del usuario
+- `GET /trades/{id}` - Obtener trade
+- `PATCH /trades/{id}` - Actualizar trade
+- `DELETE /trades/{id}` - Eliminar trade
+
+### Precios (público)
+- `GET /precios/{coin_id}` - Precio actual
+- `GET /precios/multiples?coins=btc,eth` - Múltiples precios
+- `GET /precios/buscar/{query}` - Buscar moneda
+
+### Análisis (requiere JWT)
+- `GET /analisis/pnl-en-vivo` - P&L con precios actuales
 
 ## Instalación
 
-1. Clonar el repositorio
-2. Crear entorno virtual: `python -m venv venv`
-3. Activar: `venv\Scripts\activate` (Windows) o `source venv/bin/activate` (Linux/Mac)
-4. Instalar dependencias: `pip install -r requirements.txt`
-5. Ejecutar: `uvicorn app.main:app --reload`
-6. Documentación: http://127.0.0.1:8000/docs
-
-## Ejemplo de uso
-
-### Crear un trade
-```json
-POST /trades/
-{
-    "tipo": "compra",
-    "activo": "BTC",
-    "precio": 50000,
-    "cantidad": 0.5
-}
+```bash
+python -m venv venv
+source venv/bin/activate  # o venv\Scripts\activate en Windows
+pip install -r requirements.txt
+uvicorn app.main:app --reload

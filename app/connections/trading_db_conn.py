@@ -46,6 +46,18 @@ class TradingConnection:
                 FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
             )
         ''')
+
+        # Tabla de watchlist con foreign key a usuarios
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS watchlist (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                usuario_id INTEGER NOT NULL,
+                coin_id TEXT NOT NULL,
+                precio_alerta REAL NOT NULL CHECK(precio_alerta > 0),
+                creado_en TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+            )
+        ''')
         
         conn.commit()
         conn.close()
