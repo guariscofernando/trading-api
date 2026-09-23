@@ -3,15 +3,14 @@ from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi import HTTPException
-from app.config import API_KEY
+from app.config import config
 from app.dao.UserDAO import UserDAO
 import bcrypt
 
 # Configuración
-SECRET_KEY = API_KEY  # En producción usar variable de entorno
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+SECRET_KEY = config.SECRET_KEY
+ALGORITHM = config.ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = config.ACCESS_TOKEN_EXPIRE_MINUTES
 
 # Para extraer el token del header
 security = HTTPBearer()

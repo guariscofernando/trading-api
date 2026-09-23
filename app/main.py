@@ -1,32 +1,49 @@
 # app/main.py
 import time
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.routers.trades import router as trades_router
-from app.routers.intensive_review import router as intensive_review_router
-from app.routers.users import router as users_router
-from app.routers.precios import router as precios_router
-from app.routers.analisis import router as analisis_router
+from app.routers import trades, intensive_review, users, precios, analisis
 from app.connections.intensive_review_db_conn import IntensiveReviewConnection
 from app.connections.trading_db_conn import TradingConnection
+from app.config import config
+from app.middleware import LoggingMiddleware, RateLimitMiddleware
 
-app = FastAPI(title="Trading API", version="1.0.0")
+app = FastAPI(
+    title="Trading API",
+    version="3.0.0",
+    description="API completa para gestión de trades con autenticación JWT"
+)
 
-# Registrar router de trades
-app.include_router(trades_router)
+# Configuración CORS
+origins = [
+    "http://localhost:3000",      # React/Vue en desarrollo
+    "http://localhost:5173",      # Vite
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+    "https://tu-frontend.com",    # Tu dominio en producción
+    "*",                          # En desarrollo, permitir todos (NO usar en producción)
+]
 
-#Registrar router de intensive_review
-app.include_router(intensive_review_router)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],          # Permitir todos los métodos (GET, POST, PUT, DELETE)
+    allow_headers=["*"],          # Permitir todos los headers
+)
 
-#Registrar router de usuarios
-app.include_router(users_router)
+# Agregar middlewares (el orden importa)
+app.add_middleware(LoggingMiddleware)
+app.add_middleware(RateLimitMiddleware, max_requests=100, window_seconds=60)
 
-#Registrar router de precios
-app.include_router(precios_router)
-
-#Registrar router de analisis
-app.include_router(analisis_router)
+# Incluir routers
+app.include_router(users.router)
+app.include_router(trades.router)
+app.include_router(precios.router)
+app.include_router(analisis.router)
+app.include_router(intensive_review.router)
 
 # Diccionario para contar requests
 request_counts = {}
@@ -103,11 +120,50 @@ def get_stats():
 
 @app.get("/")
 def raiz():
-    return {"mensaje": "Trading API v2 - Con autenticación"}
+    return {
+        "mensaje": "Trading API v3",
+        "version": "3.0.0",
+        "docs": "/docs",
+        "endpoints": {
+            "usuarios": "/usuarios",
+            "trades": "/trades",
+            "precios": "/precios",
+            "analisis": "/analisis"
+        }
+    }
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "3.0.0"}
+
+# app/main.py (agregar)
+
+@app.get("/info")
+def api_info():
+    """Información detallada de la API"""
+    return {
+        "nombre": config.APP_NAME,
+        "version": config.APP_VERSION,
+        "endpoints_publicos": [
+            "GET /health",
+            "GET /info",
+            "POST /usuarios/registro",
+            "POST /usuarios/login",
+            "GET /precios/{coin_id}",
+            "GET /precios/multiples",
+            "GET /precios/buscar/{query}"
+        ],
+        "endpoints_protegidos": [
+            "POST /trades/",
+            "GET /trades/",
+            "GET /trades/{id}",
+            "PATCH /trades/{id}",
+            "DELETE /trades/{id}",
+            "GET /analisis/pnl-en-vivo"
+        ],
+        "autenticacion": "Bearer Token (JWT)"
+    }
 
 TradingConnection().init_db()
 IntensiveReviewConnection().init_db()
+
