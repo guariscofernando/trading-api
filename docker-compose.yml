@@ -1,0 +1,37 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./data/trading.db
+      - SECRET_KEY=mi-secreto-en-produccion
+      - DEBUG=false
+      - CORS_ORIGINS=http://localhost:3000,https://tudominio.com
+    volumes:
+      - ./data:/app/data  # Persistir datos
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Alternativa con PostgreSQL (para semana 6 día miércoles)
+  # db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     - POSTGRES_USER=trading_user
+  #     - POSTGRES_PASSWORD=trading_password
+  #     - POSTGRES_DB=trading_db
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+# volumes:
+#   postgres_data:

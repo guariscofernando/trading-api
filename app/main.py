@@ -1,5 +1,4 @@
 # app/main.py
-import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -16,22 +15,13 @@ app = FastAPI(
     description="API completa para gestión de trades con autenticación JWT"
 )
 
-# Configuración CORS
-origins = [
-    "http://localhost:3000",      # React/Vue en desarrollo
-    "http://localhost:5173",      # Vite
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-    "https://tu-frontend.com",    # Tu dominio en producción
-    "*",                          # En desarrollo, permitir todos (NO usar en producción)
-]
-
+# Configuración CORS (leída desde variables de entorno via config.py)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],          # Permitir todos los métodos (GET, POST, PUT, DELETE)
-    allow_headers=["*"],          # Permitir todos los headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Agregar middlewares (el orden importa)
@@ -45,8 +35,6 @@ app.include_router(precios.router)
 app.include_router(analisis.router)
 app.include_router(intensive_review.router)
 
-# Diccionario para contar requests
-request_counts = {}
 
 # Manejador global de errores de validación
 @app.exception_handler(RequestValidationError)
@@ -62,10 +50,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 # Manejador global de errores inesperados
 @app.exception_handler(Exception)
-async def general_exception_handler(
-    request: Request,
-    exc: Exception
-):
+async def general_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=500,
         content={
@@ -74,49 +59,6 @@ async def general_exception_handler(
         }
     )
 
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    """Middleware para loggear y contar todas las peticiones."""
-
-    start_time = time.time()
-
-    # Procesar la petición
-    response = await call_next(request)
-
-    # Calcular duración
-    duration = time.time() - start_time
-
-    # Obtener la ruta definida por FastAPI
-    endpoint = request.scope.get("route")
-
-    if endpoint:
-        endpoint_path = endpoint.path
-    else:
-        endpoint_path = request.url.path
-
-    # Incrementar contador
-    request_counts[endpoint_path] = request_counts.get(endpoint_path, 0) + 1
-
-    # Loggear
-    print(
-        f"{request.method} {request.url.path} "
-        f"- {response.status_code} "
-        f"- {duration:.3f}s"
-    )
-
-    # Agregar header con duración
-    response.headers["X-Process-Time"] = str(duration)
-
-    return response
-
-
-@app.get("/stats")
-def get_stats():
-    """Devuelve la cantidad de requests por endpoint."""
-    return {
-        "requests": request_counts
-    }
 
 @app.get("/")
 def raiz():
@@ -135,8 +77,6 @@ def raiz():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": "3.0.0"}
-
-# app/main.py (agregar)
 
 @app.get("/info")
 def api_info():
@@ -166,4 +106,3 @@ def api_info():
 
 TradingConnection().init_db()
 IntensiveReviewConnection().init_db()
-
