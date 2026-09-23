@@ -1,64 +1,76 @@
 #app/connections/trading_db_conn.py
 import os
-import sqlite3
+import psycopg2
+import psycopg2.extras
 
+# Ruta de la base de datos
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://trading_user:trading_password@localhost:5432/trading_db"
+)
 class TradingConnection:
-    # Ruta de la base de datos
-    DB_PATH = "data/trading.db"
-
+    
     def get_connection(self):
-        """Obtiene una conexión a la base de datos"""
-        conn = sqlite3.connect(self.DB_PATH)
-        conn.row_factory = sqlite3.Row  # Permite acceder a columnas por nombre
-        conn.execute("PRAGMA foreign_keys = ON")  # Activar foreign keys
+        """Obtiene conexión a PostgreSQL"""
+        conn = psycopg2.connect(DATABASE_URL)
         return conn
 
     def init_db(self):
-        # Crear carpeta data si no existe
-        if not os.path.exists("data"):
-            os.makedirs("data")
-
         """Inicializa la base de datos (crea tablas)"""
         conn = self.get_connection()
         cursor = conn.cursor()
         
-        # Tabla de usuarios
+        # Crear tabla de usuarios
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS usuarios (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE NOT NULL,
+                id SERIAL PRIMARY KEY,
+                username VARCHAR(20) UNIQUE NOT NULL,
+                email VARCHAR(100) UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
-                creado_en TEXT NOT NULL DEFAULT (datetime('now'))
+                creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
-        # Tabla de trades con foreign key a usuarios
+        # Crear tabla de trades
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS trades (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                usuario_id INTEGER NOT NULL,
-                tipo TEXT NOT NULL CHECK(tipo IN ('compra', 'venta')),
-                activo TEXT NOT NULL,
-                precio REAL NOT NULL CHECK(precio > 0),
-                cantidad REAL NOT NULL CHECK(cantidad > 0),
-                fecha TEXT NOT NULL,
-                FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+                id SERIAL PRIMARY KEY,
+                usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+                tipo VARCHAR(10) NOT NULL CHECK(tipo IN ('compra', 'venta')),
+                activo VARCHAR(10) NOT NULL,
+                precio NUMERIC(18, 8) NOT NULL CHECK(precio > 0),
+                cantidad NUMERIC(18, 8) NOT NULL CHECK(cantidad > 0),
+                fecha TIMESTAMP NOT NULL
             )
         ''')
 
         # Tabla de watchlist con foreign key a usuarios
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS watchlist (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                usuario_id INTEGER NOT NULL,
-                coin_id TEXT NOT NULL,
-                precio_alerta REAL NOT NULL CHECK(precio_alerta > 0),
-                creado_en TEXT NOT NULL DEFAULT (datetime('now')),
-                FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+                id SERIAL PRIMARY KEY,
+                usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+                coin_id VARCHAR(10) NOT NULL,
+                precio_alerta NUMERIC(18, 8) NOT NULL CHECK(precio_alerta > 0),
+                creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        ''')
+
+        # Crear índices para mejorar rendimiento
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_trades_usuario_id 
+            ON trades(usuario_id)
+        ''')
+        
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_trades_activo 
+            ON trades(activo)
+        ''')
+        
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_trades_fecha 
+            ON trades(fecha)
         ''')
         
         conn.commit()
         conn.close()
-        print("Base de datos TradingConnection inicializada con relaciones")
+        print("Base de datos PostgreSQL inicializada")
