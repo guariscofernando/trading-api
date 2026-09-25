@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.routers import trades, intensive_review, users, precios, analisis, websocket
+from app.routers import trades, intensive_review, users, precios, analisis, websocket, dashboard
 from app.connections.intensive_review_db_conn import IntensiveReviewConnection
 from app.connections.trading_db_conn import TradingConnection
 from app.config import config
@@ -38,6 +38,7 @@ app.include_router(trades.router)
 app.include_router(precios.router)
 app.include_router(analisis.router)
 app.include_router(websocket.router)
+app.include_router(dashboard.router)
 app.include_router(intensive_review.router)
 
 
