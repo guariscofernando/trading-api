@@ -1,9 +1,10 @@
 # app/main.py
 from fastapi import FastAPI, Request
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.routers import trades, intensive_review, users, precios, analisis
+from app.routers import trades, intensive_review, users, precios, analisis, websocket
 from app.connections.intensive_review_db_conn import IntensiveReviewConnection
 from app.connections.trading_db_conn import TradingConnection
 from app.config import config
@@ -14,6 +15,9 @@ app = FastAPI(
     version="3.0.0",
     description="API completa para gestión de trades con autenticación JWT"
 )
+
+# Agregar rutas html estaticas
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Configuración CORS (leída desde variables de entorno via config.py)
 app.add_middleware(
@@ -33,6 +37,7 @@ app.include_router(users.router)
 app.include_router(trades.router)
 app.include_router(precios.router)
 app.include_router(analisis.router)
+app.include_router(websocket.router)
 app.include_router(intensive_review.router)
 
 
@@ -70,7 +75,8 @@ def raiz():
             "usuarios": "/usuarios",
             "trades": "/trades",
             "precios": "/precios",
-            "analisis": "/analisis"
+            "analisis": "/analisis",
+            "websocket": "/websocket"
         }
     }
 

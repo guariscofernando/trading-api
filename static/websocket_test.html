@@ -1,0 +1,49 @@
+<!--static/websocket_test.html-->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+</head>
+<body>
+    <h1>Precios en Tiempo Real</h1>
+    
+    <div id="precios">
+        <p>Conectando...</p>
+    </div>
+    
+    <h2>Chat</h2>
+    <input type="text" id="mensaje" placeholder="Escribe un mensaje">
+    <button onclick="enviarMensaje()">Enviar</button>
+    <div id="chat"></div>
+    
+    <script>
+        // WebSocket de precios
+        const wsPrecios = new WebSocket("ws://localhost:8000/ws/precios-reales");
+        wsPrecios.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.tipo === "precios_reales") {
+                let html = "<h3>Precios Actualizados:</h3><ul>";
+                for (const [moneda, info] of Object.entries(data.datos)) {
+                    html += `<li>${moneda}: $${info.precio.toLocaleString()} (${info.cambio_24h}% 24h)</li>`;
+                }
+                html += "</ul>";
+                document.getElementById("precios").innerHTML = html;
+            }
+        };
+        
+        // WebSocket de chat
+        const wsChat = new WebSocket("ws://localhost:8000/ws/chat");
+        
+        wsChat.onmessage = function(event) {
+            const div = document.getElementById("chat");
+            div.innerHTML += `<p>${event.data}</p>`;
+        };
+        
+        function enviarMensaje() {
+            const input = document.getElementById("mensaje");
+            wsChat.send(input.value);
+            input.value = "";
+        }
+    </script>
+</body>
+</html>

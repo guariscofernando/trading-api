@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends
 from utils.authorization import get_current_user
 from app.dao.TradeDAO import TradeDAO
 from app.services.coingecko import obtener_precios_multiples
+from app.services.cache import cache
 from app.dao.WatchlistDAO import WatchlistDAO
 from app.dto.WatchlistDTO import WatchlistCreate, WatchlistResponse
 
@@ -63,10 +64,15 @@ def _calcular_pnl_por_activo(trades: list, precios_actuales: dict) -> dict:
 
     return pnl_por_activo
 
-
 @router.get("/pnl-en-vivo")
 async def pnl_en_vivo(current_user: dict = Depends(get_current_user)):
     """Calcula el P&L usando precios actuales del mercado"""
+    cache_key = f"pnl_en_vivo_{current_user['id']}"
+
+    cached_data = cache.get(cache_key)
+    if cached_data:
+        return {**cached_data, "from_cache": True}
+
     trades = trade_dao.obtener_trades_db(usuario_id=current_user["id"], limit=1000)
 
     if not trades:
@@ -83,14 +89,19 @@ async def pnl_en_vivo(current_user: dict = Depends(get_current_user)):
     pnl_por_activo = _calcular_pnl_por_activo(trades, precios_actuales)
     pnl_total = sum(d["pnl"] for d in pnl_por_activo.values())
 
-    return {
+    resultado = {
         "pnl_total": round(pnl_total, 2),
         "por_activo": pnl_por_activo,
         "precios_usados": {
             activo: precios_actuales.get(COIN_MAP.get(activo, activo.lower()), {}).get("usd", 0)
             for activo in activos
-        }
+        },
+        "from_cache": False
     }
+
+    cache.set(cache_key, resultado, ttl_seconds=60)
+
+    return resultado
 
 
 @router.get("/recomendaciones")

@@ -1,5 +1,6 @@
 # app/routers/precios.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from app.services.cache import cache
 from app.services.coingecko import (
     obtener_precio,
     obtener_precios_multiples,
@@ -31,18 +32,43 @@ async def buscar(query: str):
     return resultados.get("coins", [])[:10]  # Limitar a 10 resultados
 
 @router.get("/{coin_id}")
-async def get_precio(coin_id: str, moneda: str = "usd"):
-    """Obtiene el precio actual de una criptomoneda"""
+async def get_precio(coin_id: str, moneda: str = "usd", use_cache: bool = True):
+    """Obtiene el precio actual con caché opcional"""
+    cache_key = f"precio_{coin_id}_{moneda}"
+    
+    # Verificar caché
+    if use_cache:
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return {**cached_data, "from_cache": True}
+    
+    # Obtener de la API
     datos = await obtener_precio(coin_id, moneda)
     
     if not datos or coin_id not in datos:
         raise HTTPException(status_code=404, detail="Moneda no encontrada")
     
     precio_data = datos[coin_id]
-    
-    return {
+    resultado = {
         "moneda": coin_id,
         "precio": precio_data.get(moneda, 0),
         "cambio_24h": round(precio_data.get(f"{moneda}_24h_change", 0), 2),
-        "vs_currency": moneda
+        "vs_currency": moneda,
+        "from_cache": False
     }
+    
+    # Guardar en caché por 30 segundos
+    cache.set(cache_key, resultado, ttl_seconds=30)
+    
+    return resultado
+
+@router.get("/cache/stats")
+def cache_stats():
+    """Estadísticas del caché"""
+    return cache.stats()
+
+@router.delete("/cache/clear")
+def clear_cache():
+    """Limpiar el caché"""
+    cache.clear()
+    return {"mensaje": "Caché limpiado"}
