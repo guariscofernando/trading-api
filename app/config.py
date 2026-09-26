@@ -18,8 +18,8 @@ class Config:
     ENCODE = os.getenv("ENCODE", "utf-8")
 
     # COINGECKO
-    COINGECKO_BASE_URL = os.getenv("COINGECKO_BASE_URL")
-    COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
+    COINGECKO_BASE_URL = os.getenv("COINGECKO_BASE_URL", "https://api.coingecko.com/api/v3")
+    COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
     # CORS
     CORS_ORIGINS = os.getenv("CORS_ORIGINS","").split(",")
