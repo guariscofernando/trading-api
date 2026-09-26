@@ -6,6 +6,7 @@ from app.dao.TradeDAO import TradeDAO
 from app.services.coingecko import obtener_precios_multiples
 from app.services.cache import cache
 from datetime import datetime
+from fpdf import FPDF
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 trade_dao = TradeDAO()
@@ -87,45 +88,43 @@ async def dashboard_completo(current_user: dict = Depends(get_current_user)):
 
 @router.get("/reporte/pdf")
 async def generar_reporte_pdf(current_user: dict = Depends(get_current_user)):
-    """Genera un reporte en formato texto plano (simulando PDF), descargable"""
+    """Genera un reporte en PDF real"""
     datos = await _construir_dashboard(current_user)
 
-    lineas = [
-        "=" * 50,
-        f"  REPORTE DE TRADING - {datos['usuario']['username']}",
-        f"  Generado: {datos['generado_en']}",
-        "=" * 50,
-        "",
-        "RESUMEN GENERAL",
-        "-" * 50,
-        f"Total de trades:      {datos['resumen']['total_trades']}",
-        f"Compras:               {datos['resumen']['total_compras']}",
-        f"Ventas:                {datos['resumen']['total_ventas']}",
-        f"Volumen operado:       ${datos['resumen']['volumen_total']:,.2f}",
-        f"P&L total:             ${datos['resumen']['pnl_total']:,.2f}",
-        f"Activos operados:      {datos['resumen']['activos_operados']}",
-        "",
-        "DETALLE POR ACTIVO",
-        "-" * 50,
-    ]
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, f"Reporte de Trading - {datos['usuario']['username']}", ln=True)
 
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 8, f"Generado: {datos['generado_en']}", ln=True)
+    pdf.ln(5)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Resumen General", ln=True)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 6, f"Total de trades: {datos['resumen']['total_trades']}", ln=True)
+    pdf.cell(0, 6, f"Compras: {datos['resumen']['total_compras']}", ln=True)
+    pdf.cell(0, 6, f"Ventas: {datos['resumen']['total_ventas']}", ln=True)
+    pdf.cell(0, 6, f"Volumen operado: ${datos['resumen']['volumen_total']:,.2f}", ln=True)
+    pdf.cell(0, 6, f"P&L total: ${datos['resumen']['pnl_total']:,.2f}", ln=True)
+    pdf.ln(5)
+
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Detalle por Activo", ln=True)
+    pdf.set_font("Helvetica", "", 10)
     for activo, info in datos["por_activo"].items():
-        lineas.append(
-            f"{activo}: cantidad={info['cantidad']:.4f}  "
-            f"costo=${info['costo']:,.2f}  "
-            f"valor_actual=${info['valor_actual']:,.2f}  "
-            f"pnl=${info['pnl']:,.2f} ({info['pnl_pct']}%)"
+        pdf.cell(0, 6,
+            f"{activo}: cantidad={info['cantidad']:.4f}  pnl=${info['pnl']:,.2f} ({info['pnl_pct']}%)",
+            ln=True
         )
 
-    lineas.append("")
-    lineas.append("=" * 50)
-
-    contenido = "\n".join(lineas)
+    pdf_bytes = bytes(pdf.output())
 
     return Response(
-        content=contenido,
-        media_type="text/plain",
+        content=pdf_bytes,
+        media_type="application/pdf",
         headers={
-            "Content-Disposition": f"attachment; filename=reporte_trading_{current_user['username']}.txt"
+            "Content-Disposition": f"attachment; filename=reporte_trading_{current_user['username']}.pdf"
         }
     )
