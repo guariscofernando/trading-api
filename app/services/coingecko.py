@@ -1,11 +1,13 @@
 # app/services/coingecko.py
 import httpx
 import asyncio
+import logging
+
+logger = logging.getLogger("trading-api")
 
 COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
 
 async def obtener_precio(coin_id: str, moneda: str = "usd") -> dict:
-    """Obtiene el precio actual de una criptomoneda"""
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{COINGECKO_BASE_URL}/simple/price",
@@ -19,10 +21,11 @@ async def obtener_precio(coin_id: str, moneda: str = "usd") -> dict:
         
         if response.status_code == 200:
             return response.json()
+        
+        logger.error(f"CoinGecko error {response.status_code}: {response.text}")
         return None
 
 async def obtener_precios_multiples(coin_ids: list, moneda: str = "usd") -> dict:
-    """Obtiene precios de múltiples criptomonedas"""
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{COINGECKO_BASE_URL}/simple/price",
@@ -37,10 +40,11 @@ async def obtener_precios_multiples(coin_ids: list, moneda: str = "usd") -> dict
         
         if response.status_code == 200:
             return response.json()
+        
+        logger.error(f"CoinGecko error {response.status_code}: {response.text}")
         return None
 
 async def buscar_moneda(query: str) -> dict:
-    """Busca monedas por nombre"""
     async with httpx.AsyncClient() as client:
         response = await client.get(
             f"{COINGECKO_BASE_URL}/search",
@@ -50,4 +54,6 @@ async def buscar_moneda(query: str) -> dict:
         
         if response.status_code == 200:
             return response.json()
+        
+        logger.error(f"CoinGecko error {response.status_code}: {response.text}")
         return None
