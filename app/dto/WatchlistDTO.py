@@ -1,4 +1,5 @@
 # app/dto/WatchlistDTO.py
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 class WatchlistCreate(BaseModel):
@@ -10,4 +11,4 @@ class WatchlistResponse(BaseModel):
     usuario_id: int
     coin_id: str
     precio_alerta: float
-    creado_en: str
+    creado_en: datetime
