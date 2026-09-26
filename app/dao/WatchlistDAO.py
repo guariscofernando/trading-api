@@ -1,4 +1,6 @@
 # app/dao/WatchlistDAO.py
+import psycopg2
+import psycopg2.extras
 from app.connections.trading_db_conn import TradingConnection
 
 class WatchlistDAO:
@@ -20,7 +22,7 @@ class WatchlistDAO:
 
     def obtener_por_usuario_db(self, usuario_id):
         conn = TradingConnection().get_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
         cursor.execute(
             "SELECT * FROM watchlist WHERE usuario_id = %s ORDER BY creado_en DESC",
