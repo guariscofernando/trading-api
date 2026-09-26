@@ -1,6 +1,7 @@
 # app/middleware.py
 import time
 import logging
+from app.config import config
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -32,7 +33,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         
         # Agregar headers de diagnóstico
         response.headers["X-Process-Time"] = str(duration)
-        response.headers["X-API-Version"] = "3.0.0"
+        response.headers["X-API-Version"] = config.APP_VERSION
         
         return response
 

@@ -12,8 +12,6 @@ trade_dao = TradeDAO()
 
 router = APIRouter(prefix="/analisis", tags=["Análisis"])
 
-
-
 # Mapeo de símbolos a IDs de CoinGecko
 COIN_MAP = {
     "BTC": "bitcoin",
@@ -22,7 +20,6 @@ COIN_MAP = {
     "ADA": "cardano",
     "DOT": "polkadot"
 }
-
 
 def _calcular_pnl_por_activo(trades: list, precios_actuales: dict) -> dict:
     """Calcula cantidad, costo, valor actual y P&L por activo.
@@ -102,7 +99,6 @@ async def pnl_en_vivo(current_user: dict = Depends(get_current_user)):
     cache.set(cache_key, resultado, ttl_seconds=60)
 
     return resultado
-
 
 @router.get("/recomendaciones")
 async def recomendaciones(current_user: dict = Depends(get_current_user)):

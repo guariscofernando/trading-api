@@ -1,18 +1,12 @@
 #app/connections/trading_db_conn.py
-import os
+from app.config import config
 import psycopg2
 import psycopg2.extras
-
-# Ruta de la base de datos
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://trading_user:trading_password@localhost:5432/trading_db"
-)
 class TradingConnection:
     
     def get_connection(self):
         """Obtiene conexión a PostgreSQL"""
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg2.connect(config.DATABASE_URL)
         return conn
 
     def init_db(self):

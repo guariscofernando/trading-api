@@ -5,7 +5,9 @@ from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.config import config
 from app.dao.UserDAO import UserDAO
+from app.config import config
 import bcrypt
+
 
 # Configuración
 SECRET_KEY = config.SECRET_KEY
@@ -19,11 +21,11 @@ dao = UserDAO()
 
 def hash_password(password: str) -> str:
     """Hashea una contraseña con bcrypt"""
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    return bcrypt.hashpw(password.encode(config.ENCODE), bcrypt.gensalt()).decode(config.ENCODE)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica si la contraseña coincide con el hash"""
-    return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+    return bcrypt.checkpw(plain_password.encode(config.ENCODE), hashed_password.encode(config.ENCODE))
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     """Genera un token JWT"""

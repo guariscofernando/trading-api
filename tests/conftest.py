@@ -3,15 +3,12 @@ import pytest
 from fastapi.testclient import TestClient
 from app.main import app
 from app.connections.trading_db_conn import TradingConnection
-from app.connections.intensive_review_db_conn import IntensiveReviewConnection
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setattr(TradingConnection, "DB_PATH", str(tmp_path / "trading_test.db"))
-    monkeypatch.setattr(IntensiveReviewConnection, "DB_PATH", str(tmp_path / "review_test.db"))
 
     TradingConnection().init_db()
-    IntensiveReviewConnection().init_db()
 
     with TestClient(app) as c:
         yield c

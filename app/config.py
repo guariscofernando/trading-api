@@ -1,26 +1,38 @@
 # app/config.py
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Config:
-    # Base de datos
-    DATABASE_URL = os.getenv(
-        "DATABASE_URL",
-        "sqlite:///./data/trading.db"
-    )
+
+    # ENTORNO
+    ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+    # APP
+    APP_NAME = os.getenv("APP_NAME")
+    APP_VERSION = os.getenv("APP_VERSION")
+    APP_DESCRIPTION = os.getenv("APP_DESCRIPTION")
+
+    # AUTH
+    ENCODE = os.getenv("ENCODE", "utf-8")
+
+    # CORS
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS","").split(",")
+    
+    # DATABASE
+    DATABASE_URL = os.getenv("DATABASE_URL")
+
+    # DEBUG
+    DEBUG = os.getenv("DEBUG").lower() == "true"
     
     # JWT
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-cambiar-en-produccion")
-    ALGORITHM = "HS256"
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    ALGORITHM = os.getenv("ALGORITHM")
     ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
-    
-    # CORS
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173").split(",")
-    
-    # Debug
-    DEBUG = os.getenv("DEBUG", "false").lower() == "true"
-    
-    # App
-    APP_NAME = "Trading API"
-    APP_VERSION = "3.0.0"
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "production"
 
 config = Config()

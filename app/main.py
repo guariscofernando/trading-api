@@ -4,16 +4,18 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.routers import trades, intensive_review, users, precios, analisis, websocket, dashboard
-from app.connections.intensive_review_db_conn import IntensiveReviewConnection
+from app.routers import trades, users, precios, analisis, websocket, dashboard
 from app.connections.trading_db_conn import TradingConnection
 from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
 
 app = FastAPI(
-    title="Trading API",
-    version="3.0.0",
-    description="API completa para gestión de trades con autenticación JWT"
+    title=config.APP_NAME,
+    version=config.APP_VERSION,
+    description=config.APP_DESCRIPTION,
+    docs_url="/docs" if not config.is_production else None,
+    redoc_url="/redoc" if not config.is_production else None,
+    openapi_url="/openapi.json" if not config.is_production else None,
 )
 
 # Agregar rutas html estaticas
@@ -39,7 +41,6 @@ app.include_router(precios.router)
 app.include_router(analisis.router)
 app.include_router(websocket.router)
 app.include_router(dashboard.router)
-app.include_router(intensive_review.router)
 
 
 # Manejador global de errores de validación
@@ -69,21 +70,22 @@ async def general_exception_handler(request: Request, exc: Exception):
 @app.get("/")
 def raiz():
     return {
-        "mensaje": "Trading API v3",
-        "version": "3.0.0",
-        "docs": "/docs",
+        "mensaje": f"{config.APP_NAME} v{config.APP_VERSION}",
+        "version": config.APP_VERSION,
+        "docs": "/docs" if not config.is_production else None,
         "endpoints": {
             "usuarios": "/usuarios",
             "trades": "/trades",
             "precios": "/precios",
             "analisis": "/analisis",
+            "dashboard": "/dashboard",
             "websocket": "/websocket"
         }
     }
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok", "version": "3.0.0"}
+    return {"status": "ok", "version": config.APP_VERSION}
 
 @app.get("/info")
 def api_info():
@@ -112,4 +114,3 @@ def api_info():
     }
 
 TradingConnection().init_db()
-IntensiveReviewConnection().init_db()
