@@ -10,6 +10,7 @@ class WatchlistDAO:
         cursor.execute('''
             INSERT INTO watchlist (usuario_id, coin_id, precio_alerta)
             VALUES (%s, %s, %s)
+            RETURNING id
         ''', (usuario_id, coin_id, precio_alerta))
 
         item_id = cursor.fetchone()[0]
