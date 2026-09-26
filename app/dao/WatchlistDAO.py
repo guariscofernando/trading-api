@@ -9,10 +9,10 @@ class WatchlistDAO:
 
         cursor.execute('''
             INSERT INTO watchlist (usuario_id, coin_id, precio_alerta)
-            VALUES (?, ?, ?)
+            VALUES (%s, %s, %s)
         ''', (usuario_id, coin_id, precio_alerta))
 
-        item_id = cursor.lastrowid
+        item_id = cursor.fetchone()[0]
         conn.commit()
         conn.close()
         return item_id
@@ -22,7 +22,7 @@ class WatchlistDAO:
         cursor = conn.cursor()
 
         cursor.execute(
-            "SELECT * FROM watchlist WHERE usuario_id = ? ORDER BY creado_en DESC",
+            "SELECT * FROM watchlist WHERE usuario_id = %s ORDER BY creado_en DESC",
             (usuario_id,)
         )
         items = [dict(row) for row in cursor.fetchall()]
