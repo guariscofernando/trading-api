@@ -2,25 +2,25 @@
 import httpx
 import logging
 from app.services.cache import cache
+from app.config import config
 
 logger = logging.getLogger("trading-api")
-
-COINGECKO_BASE_URL = "https://api.coingecko.com/api/v3"
 
 async def obtener_precio(coin_id: str, moneda: str = "usd") -> dict:
     cache_key = f"coingecko_precio_{coin_id}_{moneda}"
     cached = cache.get(cache_key)
     if cached:
         return cached
-
+    headers = {"x-cg-demo-api-key": config.COINGECKO_API_KEY} if config.COINGECKO_API_KEY else {}
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{COINGECKO_BASE_URL}/simple/price",
+            f"{config.COINGECKO_BASE_URL}/simple/price",
             params={
                 "ids": coin_id,
                 "vs_currencies": moneda,
-                "include_24hr_change": "true"
+                "include_24hr_change": "true",
             },
+            headers=headers,
             timeout=10.0
         )
 
@@ -39,16 +39,17 @@ async def obtener_precios_multiples(coin_ids: list, moneda: str = "usd") -> dict
     cached = cache.get(cache_key)
     if cached:
         return cached
-
+    headers = {"x-cg-demo-api-key": config.COINGECKO_API_KEY} if config.COINGECKO_API_KEY else {}
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{COINGECKO_BASE_URL}/simple/price",
+            f"{config.COINGECKO_BASE_URL}/simple/price",
             params={
                 "ids": ",".join(coin_ids),
                 "vs_currencies": moneda,
                 "include_24hr_change": "true",
                 "include_market_cap": "true"
             },
+            headers=headers,
             timeout=10.0
         )
 
@@ -64,7 +65,7 @@ async def obtener_precios_multiples(coin_ids: list, moneda: str = "usd") -> dict
 async def buscar_moneda(query: str) -> dict:
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{COINGECKO_BASE_URL}/search",
+            f"{config.COINGECKO_BASE_URL}/search",
             params={"query": query},
             timeout=10.0
         )
