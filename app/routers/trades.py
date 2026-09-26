@@ -1,6 +1,7 @@
 # app/routers/trades.py
 import csv
 import io
+import math
 from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from app.dto.TradeDTO import TradeCreate, TradeResponse, TradeUpdate
@@ -31,8 +32,10 @@ def listar_trades(
     )
    
 # CREATE (protegido)
+from app.routers.websocket import notification_manager
+
 @router.post("/", response_model=TradeResponse, status_code=201)
-def crear_trade(
+async def crear_trade(
     trade: TradeCreate,
     current_user: dict = Depends(get_current_user)
 ):
@@ -47,8 +50,8 @@ def crear_trade(
         cantidad=trade.cantidad,
         fecha=fecha
     )
-    
-    return {
+
+    resultado = {
         "id": trade_id,
         "usuario_id": current_user["id"],
         "tipo": trade.tipo,
@@ -57,6 +60,14 @@ def crear_trade(
         "cantidad": trade.cantidad,
         "fecha": fecha
     }
+
+    await notification_manager.notificar(current_user["id"], {
+        "tipo": "nuevo_trade",
+        "mensaje": f"Nuevo trade registrado: {trade.tipo} {trade.cantidad} {trade.activo.upper()}",
+        "datos": resultado
+    })
+
+    return resultado
 
 @router.get("/buscar")
 def buscar_trades(
@@ -200,6 +211,37 @@ def mejor_trade():
 def trades_por_fecha(desde: Optional[str] = None, hasta: Optional[str] = None):
     """Obtiene trades en un rango de fechas"""
     return dao.trades_por_fecha_db(desde, hasta)
+
+@router.get("/paginado")
+def trades_paginado(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    orden: str = "fecha",
+    direccion: str = "desc",
+    current_user: dict = Depends(get_current_user)
+):
+    """Paginación avanzada con ordenamiento"""
+    trades, total = dao.obtener_trades_paginado_db(
+        usuario_id=current_user["id"],
+        page=page,
+        per_page=per_page,
+        orden=orden,
+        direccion=direccion
+    )
+
+    total_pages = math.ceil(total / per_page) if total > 0 else 0
+
+    return {
+        "data": trades,
+        "paginacion": {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "total_pages": total_pages,
+            "orden": orden,
+            "direccion": direccion
+        }
+    }
 
 """
 Exercise: Create a `/resumen/por-activo/{activo}` endpoint that returns:

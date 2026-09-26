@@ -15,6 +15,13 @@
     <input type="text" id="mensaje" placeholder="Escribe un mensaje">
     <button onclick="enviarMensaje()">Enviar</button>
     <div id="chat"></div>
+
+    <h2>Notificaciones</h2>
+    <div id="notificaciones"></div>
+
+    <script>
+        
+    </script>
     
     <script>
         // WebSocket de precios
@@ -44,6 +51,28 @@
             wsChat.send(input.value);
             input.value = "";
         }
+
+        // WebSocket de notificaicones
+        const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkwNDQ4NTAwfQ.6WwHX0Osa9mevTLbjTZJ3oJ8PLoPUX2XPCPrunoj1As";
+        const wsNotif = new WebSocket(`ws://localhost:8000/ws/notificaciones?token=${TOKEN}`);
+
+        wsNotif.onopen = () => {
+            console.log("Conectado a notificaciones");
+        };
+
+        wsNotif.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            const div = document.getElementById("notificaciones");
+            div.innerHTML += `<p>[${data.tipo}] ${data.mensaje}</p>`;
+        };
+
+        wsNotif.onerror = (err) => {
+            console.error("Error en WebSocket de notificaciones", err);
+        };
+
+        wsNotif.onclose = (event) => {
+            console.log("WebSocket cerrado", event.code, event.reason);
+        };
     </script>
 </body>
 </html>

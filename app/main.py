@@ -8,6 +8,8 @@ from app.routers import trades, users, precios, analisis, websocket, dashboard
 from app.connections.trading_db_conn import TradingConnection
 from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
+from app.routers.websocket import verificar_alertas
+import asyncio
 
 app = FastAPI(
     title=config.APP_NAME,
@@ -114,3 +116,7 @@ def api_info():
     }
 
 TradingConnection().init_db()
+
+@app.on_event("startup")
+async def iniciar_tareas_background():
+    asyncio.create_task(verificar_alertas())

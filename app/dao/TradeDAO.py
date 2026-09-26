@@ -45,6 +45,11 @@ class TradeDAO:
         
         cursor.execute(query, params)
         trades = [dict(row) for row in cursor.fetchall()]
+
+        for trade in trades:
+            trade["precio"] = float(trade["precio"])
+            trade["cantidad"] = float(trade["cantidad"])
+
         conn.close()
         return trades
 
@@ -70,6 +75,11 @@ class TradeDAO:
         
         cursor.execute(query, params)
         trades = [dict(row) for row in cursor.fetchall()]
+
+        for trade in trades:
+            trade["precio"] = float(trade["precio"])
+            trade["cantidad"] = float(trade["cantidad"])
+
         conn.close()
         return trades
 
@@ -81,10 +91,14 @@ class TradeDAO:
         
         cursor.execute("SELECT * FROM trades WHERE id = %s", (trade_id,))
         row = cursor.fetchone()
+
         conn.close()
         
         if row:
-            return dict(row)
+            trade = dict(row)
+            trade["precio"] = float(trade["precio"])
+            trade["cantidad"] = float(trade["cantidad"])
+            return trade
         return None
 
     def actualizar_trade_db(self, trade_id, **kwargs):
@@ -146,6 +160,46 @@ class TradeDAO:
         
         cursor.execute(query, params)
         trades = [dict(row) for row in cursor.fetchall()]
+
+        for trade in trades:
+            trade["precio"] = float(trade["precio"])
+            trade["cantidad"] = float(trade["cantidad"])
+
         conn.close()
         
         return trades
+
+    def obtener_trades_paginado_db(self, usuario_id, page=1, per_page=20, orden="fecha", direccion="desc"):
+        """Trades paginados y ordenados. Devuelve (trades, total)."""
+        columnas_validas = {"id", "tipo", "activo", "precio", "cantidad", "fecha"}
+        if orden not in columnas_validas:
+            orden = "fecha"
+        direccion_sql = "ASC" if direccion.lower() == "asc" else "DESC"
+        offset = (page - 1) * per_page
+
+        conn = TradingConnection().get_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        cursor.execute(
+            "SELECT COUNT(*) AS total FROM trades WHERE usuario_id = %s",
+            (usuario_id,)
+        )
+        total = cursor.fetchone()["total"]
+
+        cursor.execute(
+            f"""
+            SELECT * FROM trades
+            WHERE usuario_id = %s
+            ORDER BY {orden} {direccion_sql}
+            LIMIT %s OFFSET %s
+            """,
+            (usuario_id, per_page, offset)
+        )
+        trades = [dict(row) for row in cursor.fetchall()]
+
+        for trade in trades:
+            trade["precio"] = float(trade["precio"])
+            trade["cantidad"] = float(trade["cantidad"])
+
+        conn.close()
+        return trades, total

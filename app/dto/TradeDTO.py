@@ -1,4 +1,6 @@
 # app/dto/TradeDTO.py
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional
 
@@ -25,7 +27,7 @@ class TradeResponse(BaseModel):
     activo: str
     precio: float
     cantidad: float
-    fecha: str
+    fecha: datetime
 
 # Modelo para ACTUALIZAR un trade (parcial)
 class TradeUpdate(BaseModel):
