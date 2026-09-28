@@ -17,6 +17,11 @@ class Config:
     # AUTH
     ENCODE = os.getenv("ENCODE", "utf-8")
 
+    # BINANCE
+    BINANCE_TESTNET = os.getenv("BINANCE_TESTNET", "true").lower() == "true"
+    BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
+    BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "")
+
     # COINGECKO
     COINGECKO_BASE_URL = os.getenv("COINGECKO_BASE_URL", "https://api.coingecko.com/api/v3")
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
@@ -40,3 +45,8 @@ class Config:
         return self.ENVIRONMENT == "production"
 
 config = Config()
+
+# Validación: si estamos en testnet, debemos tener API keys
+if config.BINANCE_TESTNET:
+    if not config.BINANCE_API_KEY or not config.BINANCE_SECRET_KEY:
+        print("⚠️  WARNING: Binance API keys not configured")

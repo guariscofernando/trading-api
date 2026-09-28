@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.routers import trades, users, precios, analisis, websocket, dashboard
+from app.routers import trades, users, precios, analisis, websocket, dashboard, binance_router
 from app.connections.trading_db_conn import TradingConnection
 from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
@@ -43,6 +43,7 @@ app.include_router(precios.router)
 app.include_router(analisis.router)
 app.include_router(websocket.router)
 app.include_router(dashboard.router)
+app.include_router(binance_router.router)
 
 
 # Manejador global de errores de validación
