@@ -350,10 +350,10 @@ pytest
 ## Deploy
 
 La API está desplegada en Render.com.
-> https://trading-api-1xov.onrender.com
+> https://trading-api-o9u2.onrender.com/
 
 Y en Railway.com
-> https://trading-api-production-4205.up.railway.app/
+> https://trading-api-production-4205.up.railway.app/docs
 
 ## Notas
 
