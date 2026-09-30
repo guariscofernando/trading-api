@@ -1,8 +1,13 @@
 # app/services/binance_service.py
+import logging
+from app.config import config
 from binance.client import Client
 from binance.exceptions import BinanceAPIException
-from app.config import config
-import logging
+from binance.enums import (
+    SIDE_BUY, SIDE_SELL,
+    ORDER_TYPE_MARKET, ORDER_TYPE_LIMIT, ORDER_TYPE_STOP_LOSS,
+    TIME_IN_FORCE_GTC
+)
 
 logger = logging.getLogger("binance-service")
 
@@ -108,6 +113,117 @@ class BinanceService:
         except BinanceAPIException as e:
             logger.error(f"Error obteniendo info de {symbol}: {e}")
             return None
+
+    def place_market_order(self, symbol: str, side: str, quantity: float) -> dict:
+        """Coloca una orden de mercado"""
+        try:
+            order_side = SIDE_BUY if side == "BUY" else SIDE_SELL
+            
+            order = self.client.order_market(
+                symbol=symbol.upper(),
+                side=order_side,
+                quantity=quantity
+            )
+            
+            return {
+                "orderId": order['orderId'],
+                "symbol": order['symbol'],
+                "side": order['side'],
+                "type": order['type'],
+                "status": order['status'],
+                "executedQty": order['executedQty'],
+                "fills": order.get('fills', [])
+            }
+        except BinanceAPIException as e:
+            logger.error(f"Error colocando market order: {e}")
+            raise
+
+    def place_limit_order(self, symbol: str, side: str, quantity: float, price: float) -> dict:
+        """Coloca una orden limitada"""
+        try:
+            order_side = SIDE_BUY if side == "BUY" else SIDE_SELL
+            
+            order = self.client.order_limit(
+                symbol=symbol.upper(),
+                side=order_side,
+                quantity=quantity,
+                price=str(price),
+                timeInForce=TIME_IN_FORCE_GTC  # Good Till Cancel
+            )
+            
+            return {
+                "orderId": order['orderId'],
+                "symbol": order['symbol'],
+                "side": order['side'],
+                "type": order['type'],
+                "status": order['status'],
+                "price": order['price'],
+                "origQty": order['origQty']
+            }
+        except BinanceAPIException as e:
+            logger.error(f"Error colocando limit order: {e}")
+            raise
+
+    def place_stop_loss_order(self, symbol: str, side: str, quantity: float, stop_price: float) -> dict:
+        """Coloca una orden stop-loss"""
+        try:
+            order_side = SIDE_BUY if side == "BUY" else SIDE_SELL
+            
+            order = self.client.create_order(
+                symbol=symbol.upper(),
+                side=order_side,
+                type=ORDER_TYPE_STOP_LOSS,
+                quantity=quantity,
+                stopPrice=str(stop_price)
+            )
+            
+            return {
+                "orderId": order['orderId'],
+                "symbol": order['symbol'],
+                "side": order['side'],
+                "type": order['type'],
+                "status": order['status'],
+                "stopPrice": order['stopPrice']
+            }
+        except BinanceAPIException as e:
+            logger.error(f"Error colocando stop loss: {e}")
+            raise
+
+    def cancel_order(self, symbol: str, order_id: int) -> dict:
+        """Cancela una orden"""
+        try:
+            result = self.client.cancel_order(
+                symbol=symbol.upper(),
+                orderId=order_id
+            )
+            return result
+        except BinanceAPIException as e:
+            logger.error(f"Error cancelando orden {order_id}: {e}")
+            raise
+
+    def get_open_orders(self, symbol: str = None) -> list:
+        """Obtiene órdenes abiertas"""
+        try:
+            if symbol:
+                orders = self.client.get_open_orders(symbol=symbol.upper())
+            else:
+                orders = self.client.get_open_orders()
+            
+            return [
+                {
+                    "orderId": o['orderId'],
+                    "symbol": o['symbol'],
+                    "side": o['side'],
+                    "type": o['type'],
+                    "price": o['price'],
+                    "origQty": o['origQty'],
+                    "status": o['status']
+                }
+                for o in orders
+            ]
+        except BinanceAPIException as e:
+            logger.error(f"Error obteniendo órdenes abiertas: {e}")
+            return []
 
 # Instancia global
 binance_service = BinanceService()
