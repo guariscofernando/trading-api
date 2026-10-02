@@ -97,18 +97,29 @@ class BinanceService:
             logger.error(f"Error obteniendo tickers: {e}")
             return []
     
-    def get_symbol_info(self, symbol: str) -> dict:
+    def get_symbol_info(self, symbol: str) -> dict | None:
         """Obtiene información detallada de un par"""
         try:
             info = self.client.get_symbol_info(symbol.upper())
+            if not info:
+                logger.warning(f"Símbolo no encontrado: {symbol}")
+                return None
+
+            filters = {f["filterType"]: f for f in info.get("filters", [])}
+            lot_size = filters.get("LOT_SIZE", {})
+            price_filter = filters.get("PRICE_FILTER", {})
+            notional = filters.get("NOTIONAL") or filters.get("MIN_NOTIONAL", {})
+
             return {
-                "symbol": info['symbol'],
-                "status": info['status'],
-                "baseAsset": info['baseAsset'],
-                "quoteAsset": info['quoteAsset'],
-                "minQty": info['filters'][2]['minQty'],
-                "stepSize": info['filters'][2]['stepSize'],
-                "minNotional": info['filters'][3]['minNotional'] if len(info['filters']) > 3 else None
+                "symbol": info["symbol"],
+                "status": info["status"],
+                "baseAsset": info["baseAsset"],
+                "quoteAsset": info["quoteAsset"],
+                "minQty": lot_size.get("minQty"),
+                "maxQty": lot_size.get("maxQty"),
+                "stepSize": lot_size.get("stepSize"),
+                "tickSize": price_filter.get("tickSize"),
+                "minNotional": notional.get("minNotional"),
             }
         except BinanceAPIException as e:
             logger.error(f"Error obteniendo info de {symbol}: {e}")

@@ -49,6 +49,24 @@ class TradingConnection:
             )
         ''')
 
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS orders (
+                id SERIAL PRIMARY KEY,
+                usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+                binance_order_id BIGINT,
+                symbol VARCHAR(20) NOT NULL,
+                side VARCHAR(10) NOT NULL CHECK(side IN ('BUY', 'SELL')),
+                order_type VARCHAR(20) NOT NULL CHECK(order_type IN ('MARKET', 'LIMIT', 'STOP_LOSS')),
+                status VARCHAR(30) NOT NULL DEFAULT 'NEW',
+                quantity NUMERIC(18, 8) NOT NULL,
+                price NUMERIC(18, 8),
+                stop_price NUMERIC(18, 8),
+                executed_qty NUMERIC(18, 8) DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         # Crear índices para mejorar rendimiento
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_trades_usuario_id 
@@ -63,6 +81,22 @@ class TradingConnection:
         cursor.execute('''
             CREATE INDEX IF NOT EXISTS idx_trades_fecha 
             ON trades(fecha)
+        ''')
+
+        # Índice para búsquedas rápidas
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_orders_usuario 
+            ON orders(usuario_id)
+        ''')
+        
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_orders_symbol 
+            ON orders(symbol)
+        ''')
+        
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_orders_status 
+            ON orders(status)
         ''')
         
         conn.commit()
