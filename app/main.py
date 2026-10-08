@@ -1,15 +1,18 @@
 # app/main.py
 import asyncio
+import logging
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.routers import trades, users, precios, analisis, websocket, dashboard, binance_router, orders_router
+from app.routers import trades, users, precios, analisis, websocket, dashboard, binance_router, orders_router, system
 from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
 from app.routers.websocket import verificar_alertas
 from app.migrations.create_trading import TradingCreate
+
+logger = logging.getLogger("trading-api")
 
 app = FastAPI(
     title=config.APP_NAME,
@@ -45,6 +48,7 @@ app.include_router(websocket.router)
 app.include_router(dashboard.router)
 app.include_router(binance_router.router)
 app.include_router(orders_router.router)
+app.include_router(system.router)
 
 # Manejador global de errores de validación
 @app.exception_handler(RequestValidationError)
@@ -61,13 +65,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Manejador global de errores inesperados
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error": "Error interno del servidor",
-            "mensaje": str(exc)
-        }
-    )
+    # El detalle va al log; al cliente solo en desarrollo (en producción
+    # podría filtrar SQL, rutas internas u otros datos sensibles).
+    logger.exception("Error no controlado en %s %s", request.method, request.url.path)
+    content = {"error": "Error interno del servidor"}
+    if not config.is_production:
+        content["mensaje"] = str(exc)
+    return JSONResponse(status_code=500, content=content)
 
 
 @app.get("/")

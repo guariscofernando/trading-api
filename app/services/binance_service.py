@@ -17,25 +17,30 @@ class BinanceService:
     def __init__(self):
         # Si estamos en testnet, usar la URL de testnet
         if config.BINANCE_TESTNET:
+            # ping=False: no tocar la red al crear el cliente. Si Binance no responde
+            # (caída o región restringida) la API arranca igual y solo fallan los
+            # endpoints de Binance cuando se usan.
             self.client = Client(
                 config.BINANCE_API_KEY,
                 config.BINANCE_SECRET_KEY,
-                testnet=True
+                testnet=True,
+                ping=False
             )
-            logger.info("✓ Conectado a Binance TESTNET")
+            logger.info("✓ Cliente Binance TESTNET configurado")
         else:
             self.client = Client(
                 config.BINANCE_API_KEY,
-                config.BINANCE_SECRET_KEY
+                config.BINANCE_SECRET_KEY,
+                ping=False
             )
-            logger.info("✓ Conectado a Binance PRODUCTION")
+            logger.info("✓ Cliente Binance PRODUCTION configurado")
     
     def ping(self) -> bool:
         """Verifica conexión con Binance"""
         try:
             self.client.ping()
             return True
-        except BinanceAPIException as e:
+        except Exception as e:  # incluye errores de red, no solo errores de la API
             logger.error(f"Error en ping: {e}")
             return False
     

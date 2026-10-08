@@ -27,13 +27,13 @@ class Config:
     COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
     # CORS
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS","").split(",")
+    CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
     
     # DATABASE
     DATABASE_URL = os.getenv("DATABASE_URL")
 
     # DEBUG
-    DEBUG = os.getenv("DEBUG").lower() == "true"
+    DEBUG = os.getenv("DEBUG", "false").lower() == "true"
     
     # JWT
     SECRET_KEY = os.getenv("SECRET_KEY")
@@ -44,7 +44,51 @@ class Config:
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
 
+    def validate(self) -> None:
+        """Falla al arrancar, con un mensaje claro, si la configuración es inválida."""
+        requeridas = {
+            "SECRET_KEY": self.SECRET_KEY,
+            "ALGORITHM": self.ALGORITHM,
+            "DATABASE_URL": self.DATABASE_URL,
+            "APP_NAME": self.APP_NAME,
+            "APP_VERSION": self.APP_VERSION,
+            "APP_DESCRIPTION": self.APP_DESCRIPTION,
+        }
+        faltantes = [nombre for nombre, valor in requeridas.items() if not valor]
+        if faltantes:
+            raise RuntimeError(
+                "Configuración incompleta. Faltan variables de entorno: "
+                + ", ".join(faltantes)
+                + ". Revisa tu .env (ver .env.example)."
+            )
+
+        if self.ALGORITHM not in ("HS256", "HS384", "HS512"):
+            raise RuntimeError(
+                f"ALGORITHM='{self.ALGORITHM}' no es válido. Usa HS256, HS384 o HS512."
+            )
+
+        if self.is_production:
+            if len(self.SECRET_KEY) < 32 or self.SECRET_KEY in SECRETS_DE_EJEMPLO:
+                raise RuntimeError(
+                    "SECRET_KEY insegura para producción: debe tener al menos 32 "
+                    "caracteres y no puede ser el valor de ejemplo. "
+                    "Genera una con: python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+                )
+            if not self.CORS_ORIGINS or "*" in self.CORS_ORIGINS:
+                raise RuntimeError(
+                    "En producción CORS_ORIGINS debe listar orígenes concretos (no vacío ni '*')."
+                )
+
+# Valores de ejemplo que nunca deben usarse en producción
+SECRETS_DE_EJEMPLO = {
+    "cambia-esto-en-produccion",
+    "cambiar-por-una-clave-segura-en-produccion",
+    "secret",
+    "changeme",
+}
+
 config = Config()
+config.validate()
 
 # Validación: si estamos en testnet, debemos tener API keys
 if config.BINANCE_TESTNET:

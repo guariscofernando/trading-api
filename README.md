@@ -131,7 +131,9 @@ COINGECKO_API_KEY=tu_api_key_coingecko
 | `BINANCE_API_KEY`, `BINANCE_SECRET_KEY` | Claves de Binance **Testnet** (se generan en [testnet.binance.vision](https://testnet.binance.vision)) |
 | `COINGECKO_API_KEY` | API key de CoinGecko |
 
-**Variables obligatorias:** `SECRET_KEY`, `ALGORITHM`, `DATABASE_URL`, `DEBUG`, `APP_NAME`, `APP_VERSION` y `APP_DESCRIPTION`. Si falta alguna, la aplicación no arranca o falla al usar la autenticación.
+**Variables obligatorias:** `SECRET_KEY`, `ALGORITHM`, `DATABASE_URL`, `APP_NAME`, `APP_VERSION` y `APP_DESCRIPTION`. Si falta alguna, la aplicación no arranca y el error indica cuáles faltan. `DEBUG` es opcional (por defecto `false`).
+
+**Validaciones en producción** (`ENVIRONMENT=production`): `SECRET_KEY` debe tener al menos 32 caracteres y no puede ser un valor de ejemplo, y `CORS_ORIGINS` debe listar orígenes concretos (no vacío ni `*`). Para generar una clave: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
 **Variables con valor por defecto:** `ENVIRONMENT` (`development`), `ENCODE` (`utf-8`), `BINANCE_TESTNET` (`true`), `COINGECKO_BASE_URL`, `ACCESS_TOKEN_EXPIRE_MINUTES` (`60`). Si no configuras las claves de Binance se muestra una advertencia al iniciar y los endpoints de `/binance` y `/orders` no funcionarán.
 
@@ -165,6 +167,8 @@ La respuesta del login incluye `access_token`, `token_type` y los datos básicos
 
 La columna **Auth** indica si el endpoint requiere JWT (🔒) o es público (🌐).
 
+> **Aislamiento por usuario:** todos los endpoints de `/trades` (búsqueda, CSV, estadísticas, resúmenes y P&L) devuelven únicamente los trades del usuario autenticado.
+
 ### General
 
 | Método | Ruta | Auth | Descripción |
@@ -182,7 +186,7 @@ La API aplica un límite de **100 peticiones por 60 segundos** (rate limit) y re
 | POST | `/usuarios/registro` | 🌐 | Registrar usuario |
 | POST | `/usuarios/login` | 🌐 | Login, devuelve JWT |
 | GET | `/usuarios/me` | 🔒 | Info del usuario autenticado |
-| GET | `/usuarios/{user_id}` | 🌐 | Obtener usuario por ID |
+| GET | `/usuarios/{user_id}` | 🔒 | Obtener el propio perfil (404 si el ID es de otro usuario) |
 
 ### Trades — `/trades`
 
@@ -191,16 +195,16 @@ La API aplica un límite de **100 peticiones por 60 segundos** (rate limit) y re
 | POST | `/trades/` | 🔒 | Crear trade (envía notificación por WebSocket) |
 | GET | `/trades/` | 🔒 | Listar trades propios. Query: `skip`, `limit` (máx. 100), `tipo`, `activo` |
 | GET | `/trades/paginado` | 🔒 | Paginación con orden. Query: `page`, `per_page`, `orden`, `direccion` |
-| GET | `/trades/{id}` | 🌐 | Obtener un trade |
+| GET | `/trades/{id}` | 🔒 | Obtener un trade propio (404 si es de otro usuario) |
 | PATCH | `/trades/{id}` | 🔒 | Actualizar trade (solo el dueño) |
 | DELETE | `/trades/{id}` | 🔒 | Eliminar trade (solo el dueño) |
-| GET | `/trades/buscar` | 🌐 | Búsqueda avanzada. Query: `activo`, `tipo`, `precio_min`, `precio_max`, `fecha_desde`, `fecha_hasta` |
-| GET | `/trades/exportar/csv` | 🌐 | Exporta trades a CSV |
-| GET | `/trades/estadisticas` | 🌐 | Totales, volumen, precios promedio y activos operados |
-| GET | `/trades/resumen/pnl` | 🌐 | P&L por flujo de caja (ventas − compras) |
-| GET | `/trades/resumen/mejor-trade` | 🌐 | Venta de mayor valor |
-| GET | `/trades/resumen/por-fecha` | 🌐 | Trades en un rango. Query: `desde`, `hasta` |
-| GET | `/trades/resumen/por-activo/{activo}` | 🌐 | Compras, ventas, P&L y precios promedio de un activo |
+| GET | `/trades/buscar` | 🔒 | Búsqueda avanzada. Query: `activo`, `tipo`, `precio_min`, `precio_max`, `fecha_desde`, `fecha_hasta` |
+| GET | `/trades/exportar/csv` | 🔒 | Exporta trades a CSV |
+| GET | `/trades/estadisticas` | 🔒 | Totales, volumen, precios promedio y activos operados |
+| GET | `/trades/resumen/pnl` | 🔒 | P&L por flujo de caja (ventas − compras) |
+| GET | `/trades/resumen/mejor-trade` | 🔒 | Venta de mayor valor |
+| GET | `/trades/resumen/por-fecha` | 🔒 | Trades en un rango. Query: `desde`, `hasta` |
+| GET | `/trades/resumen/por-activo/{activo}` | 🔒 | Compras, ventas, P&L y precios promedio de un activo |
 
 **Ejemplo: crear trade**
 
@@ -232,8 +236,8 @@ curl -X POST http://localhost:8000/trades/ \
 | GET | `/precios/{coin_id}` | 🌐 | Precio actual. Query: `moneda` (default `usd`), `use_cache` (default `true`) |
 | GET | `/precios/multiples?coins=bitcoin,ethereum` | 🌐 | Precios de varias monedas. Query: `coins`, `moneda` |
 | GET | `/precios/buscar/{query}` | 🌐 | Buscar moneda por nombre (máx. 10 resultados) |
-| GET | `/precios/cache/stats` | 🌐 | Estadísticas del caché |
-| DELETE | `/precios/cache/clear` | 🌐 | Limpiar el caché |
+| GET | `/precios/cache/stats` | 🔒 | Estadísticas del caché |
+| DELETE | `/precios/cache/clear` | 🔒 | Limpiar el caché |
 
 Los `coin_id` son los IDs de CoinGecko (`bitcoin`, `ethereum`, etc.). El precio individual se cachea 30 segundos.
 
@@ -308,8 +312,8 @@ Campos según el tipo de orden: `MARKET` usa `quantity`; `LIMIT` agrega `price`;
 
 | Método | Ruta | Auth | Descripción |
 |--------|------|------|-------------|
-| GET | `/system/metrics` | 🌐 | Memoria, CPU y contador de peticiones |
-| GET | `/system/endpoints` | 🌐 | Lista de todos los endpoints registrados |
+| GET | `/system/metrics` | 🔒 | Memoria, CPU y contador de peticiones |
+| GET | `/system/endpoints` | 🔒 | Lista de todos los endpoints registrados |
 
 ## WebSockets
 
@@ -343,9 +347,21 @@ Las alertas de precio y P&L se revisan en background cada 60 segundos, solo para
 
 ## Tests
 
+Los tests corren contra una base PostgreSQL **real de pruebas**. El nombre de la base debe terminar en `_test`
+(si no, pytest se niega a ejecutar) porque antes de cada test se vacían las tablas.
+
 ```bash
+# crear la base de pruebas (una sola vez)
+docker-compose up -d db
+docker-compose exec db psql -U trading_user -d postgres -c "CREATE DATABASE trading_test;"
+
+# correr los tests
+export TEST_DATABASE_URL=postgresql://trading_user:trading_password@localhost:5432/trading_test
 pytest
 ```
+
+Además de las variables de la sección [Configuración](#configuración) (`SECRET_KEY`, `ALGORITHM`, etc.), no se necesita
+conexión a Binance ni a CoinGecko para correr la suite.
 
 ## Deploy
 
