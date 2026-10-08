@@ -139,15 +139,19 @@ class TradeDAO:
         
         return filas_afectadas > 0
 
-    def trades_por_fecha_db(self, desde: Optional[str] = None, hasta: Optional[str] = None):
-        """Obtiene trades en un rango de fechas"""
+    def trades_por_fecha_db(self, desde: Optional[str] = None, hasta: Optional[str] = None, usuario_id: Optional[int] = None):
+        """Obtiene trades en un rango de fechas (opcionalmente de un solo usuario)"""
         # Formato de fecha: YYYY-MM-DD
         conn = TradingConnection().get_connection()
         cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
+
         query = "SELECT * FROM trades WHERE 1=1"
         params = []
-        
+
+        if usuario_id is not None:
+            query += " AND usuario_id = %s"
+            params.append(usuario_id)
+
         if desde:
             query += " AND fecha >= %s"
             params.append(desde)

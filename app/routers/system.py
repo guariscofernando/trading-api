@@ -1,8 +1,9 @@
 # app/routers/system.py
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from collections import defaultdict
 import psutil
 import os
+from utils.authorization import get_current_user
 
 router = APIRouter(prefix="/system", tags=["System"])
 
@@ -10,8 +11,8 @@ router = APIRouter(prefix="/system", tags=["System"])
 endpoint_counts = defaultdict(int)
 
 @router.get("/metrics")
-def get_metrics():
-    """Métricas del sistema"""
+def get_metrics(current_user: dict = Depends(get_current_user)):
+    """Métricas del sistema (requiere autenticación)"""
     return {
         "peticiones_por_endpoint": dict(endpoint_counts),
         "memoria_usada_mb": round(psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024, 2),
@@ -19,8 +20,8 @@ def get_metrics():
     }
 
 @router.get("/endpoints")
-def list_endpoints():
-    """Lista todos los endpoints registrados"""
+def list_endpoints(current_user: dict = Depends(get_current_user)):
+    """Lista todos los endpoints registrados (requiere autenticación)"""
     from app.main import app
     
     endpoints = []

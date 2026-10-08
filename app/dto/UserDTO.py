@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 from pydantic import BaseModel, Field, field_validator
 
 class UsuarioCreate(BaseModel):
@@ -26,6 +27,14 @@ class UsuarioResponse(BaseModel):
     username: str
     email: str
     creado_en: str
+
+    @field_validator('creado_en', mode='before')
+    @classmethod
+    def formatear_fecha(cls, v):
+        # PostgreSQL devuelve un datetime; la API siempre expone "YYYY-MM-DD HH:MM"
+        if isinstance(v, datetime):
+            return v.strftime("%Y-%m-%d %H:%M")
+        return v
 
 class UsuarioLogin(BaseModel):
     username: str

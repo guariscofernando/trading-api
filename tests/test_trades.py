@@ -190,7 +190,7 @@ def test_calcular_pnl(client, auth_headers):
         "cantidad": 1
     }, headers=auth_headers)
 
-    response = client.get("/trades/resumen/pnl")
+    response = client.get("/trades/resumen/pnl", headers=auth_headers)
 
     assert response.status_code == 200
     data = response.json()
@@ -201,9 +201,9 @@ def test_calcular_pnl(client, auth_headers):
     assert "BTC" in data["por_activo"]
     assert data["por_activo"]["BTC"]["pnl"] == 5000
 
-def test_pnl_sin_trades(client):
+def test_pnl_sin_trades(client, auth_headers):
     """PnL cuando no hay trades registrados"""
-    response = client.get("/trades/resumen/pnl")
+    response = client.get("/trades/resumen/pnl", headers=auth_headers)
     assert response.status_code == 200
     data = response.json()
     assert data["pnl_total"] == 0

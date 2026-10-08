@@ -76,11 +76,12 @@ def buscar_trades(
     precio_min: Optional[float] = None,
     precio_max: Optional[float] = None,
     fecha_desde: Optional[str] = None,
-    fecha_hasta: Optional[str] = None
+    fecha_hasta: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
 ):
-    """Búsqueda avanzada con múltiples filtros"""
+    """Búsqueda avanzada con múltiples filtros (solo trades propios)"""
 
-    trades = dao.obtener_trades_db(limit=10000)
+    trades = dao.obtener_trades_db(usuario_id=current_user["id"], limit=10000)
 
     resultados = trades
 
@@ -105,9 +106,9 @@ def buscar_trades(
     return resultados
 
 @router.get("/exportar/csv")
-def exportar_csv():
-    """Exporta todos los trades a CSV"""
-    trades = dao.obtener_trades_db(limit=10000)
+def exportar_csv(current_user: dict = Depends(get_current_user)):
+    """Exporta los trades propios a CSV"""
+    trades = dao.obtener_trades_db(usuario_id=current_user["id"], limit=10000)
     
     output = io.StringIO()
     writer = csv.writer(output)
@@ -130,9 +131,9 @@ def exportar_csv():
     )
 
 @router.get("/estadisticas")
-def estadisticas():
-    """Estadísticas generales del portfolio"""
-    trades = dao.obtener_trades_db(limit=1000)
+def estadisticas(current_user: dict = Depends(get_current_user)):
+    """Estadísticas generales del portfolio del usuario"""
+    trades = dao.obtener_trades_db(usuario_id=current_user["id"], limit=1000)
     
     if not trades:
         return {"mensaje": "No hay trades registrados"}
@@ -157,9 +158,9 @@ def estadisticas():
     }
 
 @router.get("/resumen/pnl")
-def calcular_pnl():
-    """Calcula el P&L total del portfolio"""
-    trades = dao.obtener_trades_db(limit=1000)
+def calcular_pnl(current_user: dict = Depends(get_current_user)):
+    """Calcula el P&L total del portfolio del usuario"""
+    trades = dao.obtener_trades_db(usuario_id=current_user["id"], limit=1000)
     
     pnl = 0
     por_activo = {}
@@ -191,9 +192,9 @@ def calcular_pnl():
     }
 
 @router.get("/resumen/mejor-trade")
-def mejor_trade():
-    """Encuentra el trade con mayor ganancia"""
-    trades = dao.obtener_trades_db(limit=1000)
+def mejor_trade(current_user: dict = Depends(get_current_user)):
+    """Encuentra el trade propio con mayor ganancia"""
+    trades = dao.obtener_trades_db(usuario_id=current_user["id"], limit=1000)
     
     if not trades:
         raise HTTPException(status_code=404, detail="No hay trades")
@@ -208,9 +209,13 @@ def mejor_trade():
     return mejor
 
 @router.get("/resumen/por-fecha")
-def trades_por_fecha(desde: Optional[str] = None, hasta: Optional[str] = None):
-    """Obtiene trades en un rango de fechas"""
-    return dao.trades_por_fecha_db(desde, hasta)
+def trades_por_fecha(
+    desde: Optional[str] = None,
+    hasta: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Obtiene los trades propios en un rango de fechas"""
+    return dao.trades_por_fecha_db(desde, hasta, usuario_id=current_user["id"])
 
 @router.get("/paginado")
 def trades_paginado(
@@ -259,10 +264,10 @@ Add these enhancements to your Trading API:
 """
 
 @router.get("/resumen/por-activo/{activo}")
-def resumen_por_activo(activo: str):
-    """Obtiene estadísticas de un activo específico."""
+def resumen_por_activo(activo: str, current_user: dict = Depends(get_current_user)):
+    """Obtiene estadísticas de un activo específico del usuario."""
 
-    trades = dao.obtener_trades_db(limit=1000)
+    trades = dao.obtener_trades_db(usuario_id=current_user["id"], limit=1000)
 
     # Filtrar por activo
     trades_activo = [t for t in trades if t["activo"].upper() == activo.upper()]
@@ -289,9 +294,10 @@ def resumen_por_activo(activo: str):
 
 # READ (obtener uno)
 @router.get("/{trade_id}", response_model=TradeResponse)
-def obtener_trade(trade_id: int):
+def obtener_trade(trade_id: int, current_user: dict = Depends(get_current_user)):
     trade = dao.obtener_trade_db(trade_id)
-    if not trade:
+    # Mismo 404 para "no existe" y "es de otro usuario": no revela qué IDs existen
+    if not trade or trade["usuario_id"] != current_user["id"]:
         raise HTTPException(status_code=404, detail="Trade no encontrado")
     return trade
 

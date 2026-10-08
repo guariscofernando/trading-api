@@ -72,8 +72,10 @@ def info(current_user: dict = Depends(get_current_user)):
     return dao.obtener_usuario_por_id(current_user["id"])
 
 @router.get("/{user_id}", response_model=UsuarioResponse)
-def obtener_usuario(user_id: int):
-    usuario = dao.obtener_usuario_por_id(user_id)
+def obtener_usuario(user_id: int, current_user: dict = Depends(get_current_user)):
+    # Cada usuario solo puede consultar su propio perfil (incluye el email).
+    # Mismo 404 para "no existe" y "es de otro": no revela qué IDs existen.
+    usuario = dao.obtener_usuario_por_id(user_id) if user_id == current_user["id"] else None
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return usuario

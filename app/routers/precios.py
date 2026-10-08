@@ -1,5 +1,6 @@
 # app/routers/precios.py
 from fastapi import APIRouter, HTTPException, Depends
+from utils.authorization import get_current_user
 from app.services.cache import cache
 from app.services.coingecko import (
     obtener_precio,
@@ -63,12 +64,12 @@ async def get_precio(coin_id: str, moneda: str = "usd", use_cache: bool = True):
     return resultado
 
 @router.get("/cache/stats")
-def cache_stats():
-    """Estadísticas del caché"""
+def cache_stats(current_user: dict = Depends(get_current_user)):
+    """Estadísticas del caché (requiere autenticación)"""
     return cache.stats()
 
 @router.delete("/cache/clear")
-def clear_cache():
-    """Limpiar el caché"""
+def clear_cache(current_user: dict = Depends(get_current_user)):
+    """Limpiar el caché (requiere autenticación)"""
     cache.clear()
     return {"mensaje": "Caché limpiado"}

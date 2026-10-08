@@ -5,3 +5,6 @@ __pycache__/
 data/*.db
 .vscode/
 static/*.html
+.pytest_cache/
+*.log
+.DS_Store
