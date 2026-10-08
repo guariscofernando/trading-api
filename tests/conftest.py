@@ -10,8 +10,11 @@ Seguridad: el nombre de la base DEBE terminar en "_test". Antes de cada test se
 vacían todas las tablas, así que nunca se debe apuntar a una base con datos reales.
 """
 import os
-
 import pytest
+from fastapi.testclient import TestClient  # noqa: E402
+from app.main import app  # noqa: E402
+from app.connections.trading_db_conn import TradingConnection  # noqa: E402
+from app.middleware import RateLimitMiddleware  # noqa: E402
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -34,11 +37,6 @@ if not _db_name.endswith("_test"):
     )
 
 os.environ["DATABASE_URL"] = _test_url
-
-from fastapi.testclient import TestClient  # noqa: E402
-from app.main import app  # noqa: E402
-from app.connections.trading_db_conn import TradingConnection  # noqa: E402
-from app.middleware import RateLimitMiddleware  # noqa: E402
 
 TABLAS = ("orders", "watchlist", "trades", "usuarios")
 

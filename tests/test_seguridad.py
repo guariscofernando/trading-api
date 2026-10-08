@@ -2,6 +2,7 @@
 """Acceso sin token, aislamiento entre usuarios, validación de config y robustez."""
 import pytest
 from fastapi.testclient import TestClient
+from binance.client import Client
 
 NO_AUTORIZADO = (401, 403)  # según la versión de FastAPI, HTTPBearer devuelve 401 o 403
 
@@ -175,8 +176,6 @@ def test_config_produccion_valida_ok():
 
 def test_binance_no_toca_la_red_al_crear_el_cliente(monkeypatch):
     """Si Binance está caído o bloqueado por región, la API igual debe poder arrancar."""
-    from binance.client import Client
-
     def ping_falla(self, *a, **k):
         raise ConnectionError("Binance no disponible")
 
