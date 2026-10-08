@@ -13,6 +13,8 @@ API REST para gestionar trades de criptomonedas, con autenticación JWT, anális
 - ✅ Dashboard consolidado y reporte en PDF
 - ✅ WebSockets: precios, chat y notificaciones en tiempo real por usuario
 - ✅ Integración con Binance Testnet (precios, balance y órdenes)
+- ✅ Gestión de riesgo: tamaño de posición por riesgo fijo, stop-loss/take-profit, límites y análisis de riesgo del portafolio
+- ✅ Backtesting de estrategias (cruce de medias, RSI) con comisiones, slippage y gestión de riesgo
 - ✅ Métricas del sistema y listado de endpoints
 - ✅ Tests con Pytest
 - ✅ Deploy en Render.com
@@ -308,6 +310,68 @@ curl -X POST http://localhost:8000/orders/ \
 
 Campos según el tipo de orden: `MARKET` usa `quantity`; `LIMIT` agrega `price`; `STOP_LOSS` agrega `stop_price`.
 
+### Riesgo — `/riesgo`
+
+Todo es **solo spot, posiciones largas y sin apalancamiento**. Los porcentajes van en "puntos" (`1.0` = 1 %).
+
+| Método | Ruta | Auth | Descripción |
+|--------|------|------|-------------|
+| GET | `/riesgo/limites` | 🔒 | Límites por defecto (1 % de riesgo por trade, posición máx. 25 %, pérdida diaria 3 %, drawdown 20 %, 5 posiciones) |
+| POST | `/riesgo/tamano-posicion` | 🔒 | Unidades a comprar para arriesgar como máximo `riesgo_pct` del capital si salta el stop |
+| POST | `/riesgo/niveles-salida` | 🔒 | Precios de stop-loss y take-profit (por % o por ratio riesgo/beneficio) |
+| POST | `/riesgo/evaluar-trade` | 🔒 | Comprueba una operación propuesta contra los límites. **No ejecuta ni registra nada** |
+| GET | `/riesgo/portafolio?capital=` | 🔒 | Exposición, concentración, win rate, profit factor y drawdown de **tus** trades registrados |
+
+`tamano-posicion` calcula `cantidad = (capital × riesgo_pct) / (entrada − stop)`, la limita por el tamaño máximo de posición y
+por el saldo disponible, y trunca (nunca redondea hacia arriba). `limitado_por` indica cuál de los tres límites fue el que mandó.
+
+```bash
+curl -X POST http://localhost:8000/riesgo/tamano-posicion \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"capital": 10000, "entrada": 100, "stop": 95, "riesgo_pct": 1}'
+# -> {"cantidad": 20.0, "valor_posicion": 2000.0, "riesgo_monetario": 100.0, "limitado_por": "riesgo", ...}
+```
+
+`/riesgo/portafolio` usa costo promedio ponderado y **no usa precios de mercado**: mide lo ya realizado y la exposición a costo.
+Si hay ventas por encima de la posición registrada solo cuenta la parte cubierta por compras previas y lo indica en `advertencias`.
+
+### Backtest — `/backtest`
+
+| Método | Ruta | Auth | Descripción |
+|--------|------|------|-------------|
+| GET | `/backtest/estrategias` | 🔒 | Estrategias disponibles y sus parámetros por defecto |
+| POST | `/backtest/` | 🔒 | Simula una estrategia y devuelve métricas, operaciones y curva de equity |
+
+Estrategias: `cruce_medias` (`rapida`, `lenta`) y `rsi` (`periodo`, `sobreventa`, `sobrecompra`).
+Los datos se indican con **una** de dos fuentes: `precios` (lista de cierres, de 30 a 5.000) o `coin_id` de CoinGecko
+(precios diarios, `dias` de 30 a 365).
+
+```bash
+curl -X POST http://localhost:8000/backtest/ \
+  -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
+  -d '{"estrategia": "cruce_medias", "parametros_estrategia": {"rapida": 10, "lenta": 30},
+       "coin_id": "bitcoin", "dias": 365, "capital_inicial": 10000,
+       "riesgo_por_trade_pct": 1, "stop_loss_pct": 5, "comision_pct": 0.1, "slippage_pct": 0.05}'
+```
+
+**Reglas del simulador** (para no producir resultados mejores que la realidad):
+
+- **Sin mirar el futuro:** la señal calculada con datos hasta la barra *i* se ejecuta al precio de la barra *i+1*; una señal en la última barra no se ejecuta.
+- Una posición a la vez, solo largos, sin apalancamiento. Comisión y slippage en contra en cada lado.
+- El tamaño de cada operación sale de la misma lógica de `/riesgo/tamano-posicion`. Con los valores por defecto
+  (riesgo 1 %, stop 5 %, posición máx. 25 %) la estrategia pasa buena parte del tiempo con poco capital invertido: es la consecuencia de las reglas de riesgo.
+- Stop-loss y take-profit se evalúan **al cierre** de cada barra (solo hay precios de cierre): si el precio ya saltó el nivel, se sale al cierre, que puede ser peor que el stop.
+  Por eso la pérdida real puede superar el riesgo configurado.
+- Tras un stop/take-profit no se vuelve a entrar hasta que la señal se apague y se vuelva a encender.
+- Si el drawdown de la cuenta alcanza `drawdown_max_pct`, se cierra la posición y se detiene la operativa hasta el final.
+- Una posición abierta al terminar los datos se cierra al último precio.
+
+**Métricas:** retorno total y anualizado (solo con 1 año o más de datos), buy & hold de referencia, drawdown máximo, Sharpe
+(sin tasa libre de riesgo, anualizado con `periodos_por_ano`, 365 por defecto), nº de operaciones, win rate, profit factor,
+mejor/peor operación y tiempo en el mercado. `advertencias` avisa, por ejemplo, cuando hay menos de 30 operaciones y las estadísticas no son fiables.
+
+> ⚠️ Un backtest describe el pasado y, si ajustas los parámetros mirando los mismos datos, está sobreajustado. No es una promesa de resultados futuros ni asesoría financiera.
+
 ### Sistema — `/system`
 
 | Método | Ruta | Auth | Descripción |
@@ -355,10 +419,13 @@ Los tests corren contra una base PostgreSQL **real de pruebas**. El nombre de la
 docker-compose up -d db
 docker-compose exec db psql -U trading_user -d postgres -c "CREATE DATABASE trading_test;"
 
-# correr los tests
-export TEST_DATABASE_URL=postgresql://trading_user:trading_password@localhost:5432/trading_test
+# correr los tests: DATABASE_URL debe apuntar a la base *_test
+export DATABASE_URL=postgresql://trading_user:trading_password@localhost:5432/trading_test
 pytest
 ```
+
+Si `DATABASE_URL` (o el `.env`) apunta a una base cuyo nombre no termina en `_test`, pytest se niega a ejecutar para no vaciar datos reales.
+Los tests de riesgo y backtesting usan series sintéticas con resultados calculados a mano; no necesitan red.
 
 Además de las variables de la sección [Configuración](#configuración) (`SECRET_KEY`, `ALGORITHM`, etc.), no se necesita
 conexión a Binance ni a CoinGecko para correr la suite.

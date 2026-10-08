@@ -38,6 +38,20 @@ if not _db_name.endswith("_test"):
 
 os.environ["DATABASE_URL"] = _test_url
 
+# 2) Protección real: la app ya se importó (arriba) y leyó DATABASE_URL del entorno/.env
+#    ANTES de la línea anterior, así que el override de arriba llega tarde. Lo que vale
+#    es la base a la que la app REALMENTE se conecta; si no termina en "_test", los
+#    TRUNCATE de _vaciar_tablas() borrarían datos reales.
+from app.config import config  # noqa: E402
+
+_db_real = (config.DATABASE_URL or "").split("?")[0].rstrip("/").rsplit("/", 1)[-1]
+if not _db_real.endswith("_test"):
+    pytest.exit(
+        f"La app está conectada a '{_db_real}', que no termina en '_test'; los tests la vaciarían. "
+        f"Ejecuta: DATABASE_URL=$TEST_DATABASE_URL pytest",
+        returncode=2,
+    )
+
 TABLAS = ("orders", "watchlist", "trades", "usuarios")
 
 
