@@ -11,7 +11,6 @@ from app.routers import trades, users, precios, analisis, websocket, dashboard, 
 from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware
 from app.routers.websocket import verificar_alertas
-from app.migrations.create_trading import TradingCreate
 
 logger = logging.getLogger("trading-api")
 
@@ -140,8 +139,6 @@ def api_info():
         ],
         "autenticacion": "Bearer Token (JWT)"
     }
-
-TradingCreate().init_db()
 
 @app.on_event("startup")
 async def iniciar_tareas_background():

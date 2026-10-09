@@ -35,4 +35,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
 
 # Comando para ejecutar la aplicación
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Aplica las migraciones y luego arranca. Si la migración falla, el contenedor termina con error
+# (el despliegue se marca como fallido) en lugar de servir tráfico con un esquema a medias.
+# Con varias instancias a la vez, Alembic las serializa con un bloqueo de PostgreSQL.
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]

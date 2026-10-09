@@ -1,49 +1,34 @@
-#app/dao/UserDAO.py
-import psycopg2
-import psycopg2.extras
-from app.connections.trading_db_conn import TradingConnection
+# app/dao/UserDAO.py
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+
+from app.database import session_scope
+from app.models import Usuario, a_dict
+
 
 class UserDAO:
 
     def crear_usuario_db(self, username, email, password_hash):
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor()
-        
+        """Devuelve el id nuevo, o None si el username o el email ya existen."""
         try:
-            cursor.execute('''
-                INSERT INTO usuarios (username, email, password_hash)
-                VALUES (%s, %s, %s)
-                RETURNING id
-            ''', (username, email, password_hash))
-            
-            user_id = cursor.fetchone()[0]
-            conn.commit()
-            return user_id
-        except psycopg2.IntegrityError:
-            return None  # Username o email ya existe
-        finally:
-            conn.close()
+            with session_scope() as sesion:
+                usuario = Usuario(username=username, email=email, password_hash=password_hash)
+                sesion.add(usuario)
+                sesion.flush()          # aquí salta la violación de UNIQUE, no al confirmar
+                return usuario.id
+        except IntegrityError:
+            return None
+
+    def _uno(self, condicion):
+        with session_scope() as sesion:
+            usuario = sesion.execute(select(Usuario).where(condicion)).scalar_one_or_none()
+            return a_dict(usuario) if usuario else None
 
     def obtener_usuario_por_username(self, username):
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cursor.execute("SELECT * FROM usuarios WHERE username = %s", (username,))
-        row = cursor.fetchone()
-        conn.close()
-        return dict(row) if row else None
+        return self._uno(Usuario.username == username)
 
     def obtener_usuario_por_email(self, email):
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cursor.execute("SELECT * FROM usuarios WHERE email = %s", (email,))
-        row = cursor.fetchone()
-        conn.close()
-        return dict(row) if row else None
+        return self._uno(Usuario.email == email)
 
     def obtener_usuario_por_id(self, user_id):
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cursor.execute("SELECT * FROM usuarios WHERE id = %s", (user_id,))
-        row = cursor.fetchone()
-        conn.close()
-        return dict(row) if row else None
+        return self._uno(Usuario.id == user_id)
