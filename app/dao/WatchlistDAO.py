@@ -1,33 +1,24 @@
 # app/dao/WatchlistDAO.py
-import psycopg2
-import psycopg2.extras
-from app.connections.trading_db_conn import TradingConnection
+from sqlalchemy import select
+
+from app.database import session_scope
+from app.models import WatchlistItem, a_dict
+
 
 class WatchlistDAO:
 
     def agregar_db(self, usuario_id, coin_id, precio_alerta):
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor()
-
-        cursor.execute('''
-            INSERT INTO watchlist (usuario_id, coin_id, precio_alerta)
-            VALUES (%s, %s, %s)
-            RETURNING id
-        ''', (usuario_id, coin_id, precio_alerta))
-
-        item_id = cursor.fetchone()[0]
-        conn.commit()
-        conn.close()
-        return item_id
+        with session_scope() as sesion:
+            item = WatchlistItem(usuario_id=usuario_id, coin_id=coin_id, precio_alerta=precio_alerta)
+            sesion.add(item)
+            sesion.flush()
+            return item.id
 
     def obtener_por_usuario_db(self, usuario_id):
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        cursor.execute(
-            "SELECT * FROM watchlist WHERE usuario_id = %s ORDER BY creado_en DESC",
-            (usuario_id,)
-        )
-        items = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return items
+        with session_scope() as sesion:
+            filas = sesion.execute(
+                select(WatchlistItem)
+                .where(WatchlistItem.usuario_id == usuario_id)
+                .order_by(WatchlistItem.creado_en.desc(), WatchlistItem.id.desc())
+            ).scalars()
+            return [a_dict(f) for f in filas]

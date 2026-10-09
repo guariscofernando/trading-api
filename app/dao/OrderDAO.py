@@ -1,78 +1,50 @@
 # app/dao/OrderDAO.py
+from decimal import Decimal
 from typing import Optional
-import psycopg2
-import psycopg2.extras
-from app.connections.trading_db_conn import TradingConnection
+
+from sqlalchemy import func, select, update
+
+from app.database import session_scope
+from app.models import Order, a_dict
+
 
 class OrderDAO:
 
-    def crear_order_db(self, usuario_id, binance_order_id, symbol, side, order_type, 
-                    status, quantity, price=None, stop_price=None):
+    def crear_order_db(self, usuario_id, binance_order_id, symbol, side, order_type,
+                       status, quantity, price=None, stop_price=None):
         """Inserta una orden en la base de datos"""
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO orders (
-                usuario_id, binance_order_id, symbol, side, order_type,
-                status, quantity, price, stop_price
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING id
-        ''', (usuario_id, binance_order_id, symbol, side, order_type,
-            status, quantity, price, stop_price))
-        
-        order_id = cursor.fetchone()[0]
-        conn.commit()
-        conn.close()
-        return order_id
+        with session_scope() as sesion:
+            orden = Order(
+                usuario_id=usuario_id, binance_order_id=binance_order_id, symbol=symbol,
+                side=side, order_type=order_type, status=status,
+                quantity=quantity, price=price, stop_price=stop_price,
+            )
+            sesion.add(orden)
+            sesion.flush()
+            return orden.id
 
     def obtener_orders_db(self, usuario_id=None, status=None, symbol=None, skip=0, limit=50):
         """Obtiene órdenes con filtros"""
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
-        query = "SELECT * FROM orders WHERE 1=1"
-        params = []
-        
-        if usuario_id:
-            query += " AND usuario_id = %s"
-            params.append(usuario_id)
-        
+        consulta = select(Order)
+        if usuario_id is not None:
+            consulta = consulta.where(Order.usuario_id == usuario_id)
         if status:
-            query += " AND status = %s"
-            params.append(status)
-        
+            consulta = consulta.where(Order.status == status)
         if symbol:
-            query += " AND symbol = %s"
-            params.append(symbol)
-        
-        query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
-        params.extend([limit, skip])
-        
-        cursor.execute(query, params)
-        orders = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return orders
+            consulta = consulta.where(Order.symbol == symbol)
+        consulta = consulta.order_by(Order.created_at.desc(), Order.id.desc()).limit(limit).offset(skip)
 
-    def actualizar_order_status_db(self, binance_order_id, status, executed_qty=None):
+        with session_scope() as sesion:
+            return [a_dict(o) for o in sesion.execute(consulta).scalars()]
+
+    def actualizar_order_status_db(self, binance_order_id, status, executed_qty: Optional[object] = None):
         """Actualiza el estado de una orden"""
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor()
-        
+        valores = {"status": status, "updated_at": func.current_timestamp()}
         if executed_qty is not None:
-            cursor.execute('''
-                UPDATE orders 
-                SET status = %s, executed_qty = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE binance_order_id = %s
-            ''', (status, executed_qty, binance_order_id))
-        else:
-            cursor.execute('''
-                UPDATE orders 
-                SET status = %s, updated_at = CURRENT_TIMESTAMP
-                WHERE binance_order_id = %s
-            ''', (status, binance_order_id))
-        
-        conn.commit()
-        filas = cursor.rowcount
-        conn.close()
-        return filas > 0
+            valores["executed_qty"] = Decimal(str(executed_qty))   # Binance lo envía como texto
+
+        with session_scope() as sesion:
+            resultado = sesion.execute(
+                update(Order).where(Order.binance_order_id == binance_order_id).values(**valores)
+            )
+            return resultado.rowcount > 0

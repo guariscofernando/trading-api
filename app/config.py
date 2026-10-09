@@ -4,6 +4,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+
+def _entero(nombre: str, defecto: int) -> int:
+    """Lee un entero del entorno; si no lo es, falla al arrancar diciendo cuál variable está mal."""
+    crudo = os.getenv(nombre, str(defecto))
+    try:
+        return int(crudo)
+    except ValueError:
+        raise RuntimeError(f"{nombre} debe ser un número entero (recibido: '{crudo}')")
+
+
 class Config:
 
     # ENTORNO
@@ -31,6 +41,11 @@ class Config:
     
     # DATABASE
     DATABASE_URL = os.getenv("DATABASE_URL")
+    # Pool de conexiones por proceso. Total máximo hacia la base = (POOL_SIZE + MAX_OVERFLOW) x procesos.
+    DB_POOL_SIZE = _entero("DB_POOL_SIZE", 5)
+    DB_MAX_OVERFLOW = _entero("DB_MAX_OVERFLOW", 10)
+    DB_POOL_TIMEOUT = _entero("DB_POOL_TIMEOUT", 10)     # segundos esperando una conexión libre
+    DB_POOL_RECYCLE = _entero("DB_POOL_RECYCLE", 300)    # recicla conexiones inactivas (Neon las corta)
 
     # DEBUG
     DEBUG = os.getenv("DEBUG", "false").lower() == "true"
@@ -61,6 +76,12 @@ class Config:
                 + ", ".join(faltantes)
                 + ". Revisa tu .env (ver .env.example)."
             )
+
+        for nombre in ("DB_POOL_SIZE", "DB_POOL_TIMEOUT", "DB_POOL_RECYCLE"):
+            if getattr(self, nombre) < 1:
+                raise RuntimeError(f"{nombre} debe ser mayor o igual que 1")
+        if self.DB_MAX_OVERFLOW < 0:
+            raise RuntimeError("DB_MAX_OVERFLOW no puede ser negativo")
 
         if self.ALGORITHM not in ("HS256", "HS384", "HS512"):
             raise RuntimeError(

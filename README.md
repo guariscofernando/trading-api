@@ -23,7 +23,8 @@ API REST para gestionar trades de criptomonedas, con autenticación JWT, anális
 
 - Python 3.12
 - FastAPI
-- PostgreSQL 16 (Docker / docker-compose en local, [Neon](https://neon.tech) en producción) con psycopg2
+- PostgreSQL 16 (Docker / docker-compose en local, [Neon](https://neon.tech) en producción)
+- SQLAlchemy 2.0 (ORM síncrono con pool de conexiones) + Alembic (migraciones), con psycopg2 como driver
 - Binance Testnet (python-binance)
 - JWT (python-jose)
 - bcrypt (passlib)
@@ -65,6 +66,7 @@ pip install -r requirements.txt
 
 ```bash
 docker-compose up -d db
+alembic upgrade head          # crea/actualiza las tablas (ver "Base de datos y migraciones")
 uvicorn app.main:app --reload
 ```
 
@@ -76,9 +78,9 @@ La API se conecta a PostgreSQL en `localhost:5432` usando el `DATABASE_URL` del 
 docker-compose up --build
 ```
 
-Levanta la base de datos y la API juntas; la imagen de la API se construye con el `Dockerfile` del proyecto (Python 3.12). En este caso **no** hay que ejecutar `uvicorn`, porque el puerto de la API (`API_PORT`, por defecto 8000) ya estaría ocupado por el contenedor.
+Levanta la base de datos y la API juntas; la imagen de la API se construye con el `Dockerfile` del proyecto (Python 3.12) y **aplica las migraciones automáticamente antes de arrancar**. En este caso **no** hay que ejecutar `uvicorn`, porque el puerto de la API (`API_PORT`, por defecto 8000) ya estaría ocupado por el contenedor.
 
-> En ambos casos la base de datos debe estar corriendo antes de iniciar la API. Las tablas se crean automáticamente al arrancar la aplicación.
+> En ambos casos la base de datos debe estar corriendo antes de iniciar la API. Con la opción A tienes que ejecutar `alembic upgrade head` tú (la app ya no crea tablas al arrancar).
 
 La API queda disponible en `http://localhost:8000` y la documentación interactiva (Swagger) en `http://localhost:8000/docs`.
 
@@ -130,6 +132,10 @@ COINGECKO_API_KEY=tu_api_key_coingecko
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Credenciales de la base que crea `docker-compose` |
 | `DATABASE_URL` | Cadena de conexión. Para correr la API fuera de Docker usa `localhost`; dentro del compose se sobrescribe con el host `db` |
 | `CORS_ORIGINS` | Orígenes permitidos, separados por coma |
+| `DB_POOL_SIZE` | Conexiones que cada proceso mantiene abiertas hacia PostgreSQL (por defecto `5`) |
+| `DB_MAX_OVERFLOW` | Conexiones extra que se pueden abrir en picos (por defecto `10`) |
+| `DB_POOL_TIMEOUT` | Segundos que una petición espera una conexión libre antes de fallar (por defecto `10`) |
+| `DB_POOL_RECYCLE` | Segundos tras los que se renueva una conexión (por defecto `300`; útil con Neon, que corta las inactivas) |
 | `BINANCE_API_KEY`, `BINANCE_SECRET_KEY` | Claves de Binance **Testnet** (se generan en [testnet.binance.vision](https://testnet.binance.vision)) |
 | `COINGECKO_API_KEY` | API key de CoinGecko |
 
@@ -140,6 +146,27 @@ COINGECKO_API_KEY=tu_api_key_coingecko
 **Variables con valor por defecto:** `ENVIRONMENT` (`development`), `ENCODE` (`utf-8`), `BINANCE_TESTNET` (`true`), `COINGECKO_BASE_URL`, `ACCESS_TOKEN_EXPIRE_MINUTES` (`60`). Si no configuras las claves de Binance se muestra una advertencia al iniciar y los endpoints de `/binance` y `/orders` no funcionarán.
 
 Las variables `POSTGRES_*` y `API_PORT` las usa `docker-compose`.
+
+## Base de datos y migraciones
+
+El acceso a datos usa **SQLAlchemy 2.0** (`app/models.py`, `app/database.py`) con un **pool de conexiones**: las conexiones se reutilizan
+en vez de abrir una nueva (TCP + TLS) en cada consulta. El esquema se gestiona con **Alembic** (`alembic/versions/`).
+
+```bash
+alembic upgrade head                              # aplica las migraciones pendientes
+alembic current                                   # versión actual de la base
+alembic revision --autogenerate -m "describe el cambio"   # tras cambiar app/models.py
+alembic upgrade head --sql                        # muestra el SQL sin ejecutarlo
+```
+
+- Si cambias `app/models.py`, **crea su migración**: los tests fallan si los modelos y las migraciones difieren.
+- La migración `0001` adopta el esquema que ya existía: en una base con las tablas creadas por la versión anterior **no modifica nada**; en una base vacía crea todo.
+  La `0002` ensancha `watchlist.coin_id` a 64 caracteres (los IDs de CoinGecko no cabían en 10).
+- Con varias instancias arrancando a la vez, Alembic las serializa con un bloqueo de PostgreSQL: una migra y las demás esperan.
+- `alembic downgrade base` **borra todas las tablas y sus datos**; solo para desarrollo.
+- **Dimensionar el pool:** el máximo de conexiones hacia la base es `(DB_POOL_SIZE + DB_MAX_OVERFLOW) × número de procesos`.
+  Debe quedar por debajo del límite de tu plan de PostgreSQL (en Neon gratuito es bajo: reduce los valores si ves errores de conexión).
+- `DATABASE_URL` acepta tanto `postgresql://` como `postgres://` (algunos proveedores entregan este último).
 
 ## Autenticación
 
@@ -200,7 +227,7 @@ La API aplica un límite de **100 peticiones por 60 segundos** (rate limit) y re
 | GET | `/trades/{id}` | 🔒 | Obtener un trade propio (404 si es de otro usuario) |
 | PATCH | `/trades/{id}` | 🔒 | Actualizar trade (solo el dueño) |
 | DELETE | `/trades/{id}` | 🔒 | Eliminar trade (solo el dueño) |
-| GET | `/trades/buscar` | 🔒 | Búsqueda avanzada. Query: `activo`, `tipo`, `precio_min`, `precio_max`, `fecha_desde`, `fecha_hasta` |
+| GET | `/trades/buscar` | 🔒 | Búsqueda avanzada. Query: `activo`, `tipo`, `precio_min`, `precio_max`, `fecha_desde`, `fecha_hasta` (formato `YYYY-MM-DD`, ambas inclusive; si no es una fecha válida responde 422) |
 | GET | `/trades/exportar/csv` | 🔒 | Exporta trades a CSV |
 | GET | `/trades/estadisticas` | 🔒 | Totales, volumen, precios promedio y activos operados |
 | GET | `/trades/resumen/pnl` | 🔒 | P&L por flujo de caja (ventas − compras) |
@@ -425,6 +452,7 @@ pytest
 ```
 
 Si `DATABASE_URL` (o el `.env`) apunta a una base cuyo nombre no termina en `_test`, pytest se niega a ejecutar para no vaciar datos reales.
+El esquema de los tests se crea con `alembic upgrade head`, es decir, con las mismas migraciones que producción.
 Los tests de riesgo y backtesting usan series sintéticas con resultados calculados a mano; no necesitan red.
 
 Además de las variables de la sección [Configuración](#configuración) (`SECRET_KEY`, `ALGORITHM`, etc.), no se necesita
@@ -436,6 +464,7 @@ La API se puede desplegar en plataformas como Render o Railway usando el `Docker
 
 - **URL de producción Render:** `https://trading-api-o9u2.onrender.com/`
 - **URL de producción Railway:** `https://trading-api-production-4205.up.railway.app/`
+- **Migraciones:** el contenedor ejecuta `alembic upgrade head` antes de iniciar `uvicorn`, así que cada despliegue deja el esquema al día. Si la migración falla, el despliegue falla en vez de servir tráfico con un esquema incorrecto. Antes del primer despliegue con esta versión conviene hacer un backup (en Neon, una *branch* de la base).
 - **Variables de entorno:** el `.env` no se sube al repositorio, así que hay que cargar las variables desde el panel de la plataforma (las mismas de la sección [Configuración](#configuración)). En producción:
   - `ENVIRONMENT=production` (deshabilita `/docs`, `/redoc` y `/openapi.json`)
   - `DATABASE_URL` con la connection string de tu base en [Neon](https://neon.tech) (PostgreSQL administrado). Debe incluir `?sslmode=require`. Si falta esta variable o apunta a `localhost` (la base local de Docker), la app no arranca

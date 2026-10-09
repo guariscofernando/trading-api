@@ -1,209 +1,160 @@
-# app/database.py
-from typing import Optional
-import psycopg2
-import psycopg2.extras
-from app.connections.trading_db_conn import TradingConnection
+# app/dao/TradeDAO.py
+from datetime import date, datetime, time
+from typing import Optional, Union
+
+from sqlalchemy import delete, func, select, update
+
+from app.database import session_scope
+from app.models import Trade, Usuario, a_dict
+
+FORMATO_FECHA = "%Y-%m-%d %H:%M"
+CAMPOS_ACTUALIZABLES = {"tipo", "activo", "precio", "cantidad"}
+COLUMNAS_ORDENABLES = {"id", "tipo", "activo", "precio", "cantidad", "fecha"}
+
+
+def _trade_a_dict(trade) -> dict:
+    """Misma forma que antes: precio y cantidad como float, fecha como datetime."""
+    d = a_dict(trade)
+    d["precio"] = float(d["precio"])
+    d["cantidad"] = float(d["cantidad"])
+    return d
+
+
+def _a_datetime(valor: Union[str, date, datetime], fin_de_dia: bool = False) -> datetime:
+    """
+    Acepta 'YYYY-MM-DD HH:MM', 'YYYY-MM-DD' (formato ISO), date o datetime.
+    Una fecha sin hora es el inicio del día o, con fin_de_dia, el último instante de ese día.
+    Lanza ValueError si el texto no es una fecha.
+    """
+    if isinstance(valor, datetime):
+        return valor
+    if isinstance(valor, date):
+        return datetime.combine(valor, time.max if fin_de_dia else time.min)
+    texto = str(valor).strip()
+    try:
+        return datetime.strptime(texto, FORMATO_FECHA)
+    except ValueError:
+        pass
+    try:                                     # solo fecha ('2026-01-31')
+        return _a_datetime(date.fromisoformat(texto), fin_de_dia)
+    except ValueError:
+        raise ValueError(f"Fecha inválida: '{texto}'. Usa YYYY-MM-DD")
+
 
 class TradeDAO:
 
     def crear_trade_db(self, usuario_id, tipo, activo, precio, cantidad, fecha):
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            INSERT INTO trades (usuario_id, tipo, activo, precio, cantidad, fecha)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING id
-        ''', (usuario_id, tipo, activo, precio, cantidad, fecha))
-        
-        trade_id = cursor.fetchone()[0]
-        conn.commit()
-        conn.close()
-        return trade_id
+        with session_scope() as sesion:
+            trade = Trade(
+                usuario_id=usuario_id, tipo=tipo, activo=activo,
+                precio=precio, cantidad=cantidad, fecha=_a_datetime(fecha),
+            )
+            sesion.add(trade)
+            sesion.flush()
+            return trade.id
 
     def obtener_trades_db(self, usuario_id=None, skip=0, limit=10, tipo=None, activo=None):
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
-        query = "SELECT * FROM trades WHERE 1=1"
-        params = []
-        
-        if usuario_id:
-            query += " AND usuario_id = %s"
-            params.append(usuario_id)
-        
+        consulta = select(Trade)
+        if usuario_id is not None:
+            consulta = consulta.where(Trade.usuario_id == usuario_id)
         if tipo:
-            query += " AND tipo = %s"
-            params.append(tipo)
-        
+            consulta = consulta.where(Trade.tipo == tipo)
         if activo:
-            query += " AND activo = %s"
-            params.append(activo.upper())
-        
-        query += " ORDER BY fecha DESC LIMIT %s OFFSET %s"
-        params.extend([limit, skip])
-        
-        cursor.execute(query, params)
-        trades = [dict(row) for row in cursor.fetchall()]
+            consulta = consulta.where(Trade.activo == activo.upper())
+        consulta = consulta.order_by(Trade.fecha.desc(), Trade.id.desc()).limit(limit).offset(skip)
 
-        for trade in trades:
-            trade["precio"] = float(trade["precio"])
-            trade["cantidad"] = float(trade["cantidad"])
+        with session_scope() as sesion:
+            return [_trade_a_dict(t) for t in sesion.execute(consulta).scalars()]
 
-        conn.close()
-        return trades
+    def buscar_trades_db(self, usuario_id, activo=None, tipo=None, precio_min=None, precio_max=None,
+                         fecha_desde=None, fecha_hasta=None, limit=10000):
+        """Búsqueda con todos los filtros resueltos en SQL (nada se filtra en memoria)."""
+        consulta = select(Trade).where(Trade.usuario_id == usuario_id)
+        if activo:
+            consulta = consulta.where(Trade.activo == activo.upper())
+        if tipo:
+            consulta = consulta.where(Trade.tipo == tipo.lower())
+        if precio_min is not None:
+            consulta = consulta.where(Trade.precio >= precio_min)
+        if precio_max is not None:
+            consulta = consulta.where(Trade.precio <= precio_max)
+        if fecha_desde is not None:
+            consulta = consulta.where(Trade.fecha >= _a_datetime(fecha_desde))
+        if fecha_hasta is not None:
+            consulta = consulta.where(Trade.fecha <= _a_datetime(fecha_hasta, fin_de_dia=True))
+        consulta = consulta.order_by(Trade.fecha.desc(), Trade.id.desc()).limit(limit)
+
+        with session_scope() as sesion:
+            return [_trade_a_dict(t) for t in sesion.execute(consulta).scalars()]
 
     def obtener_trades_con_usuario_db(self, usuario_id=None, skip=0, limit=10):
         """Obtiene trades junto con la info del usuario"""
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
-        query = '''
-            SELECT trades.*, usuarios.username, usuarios.email
-            FROM trades
-            JOIN usuarios ON trades.usuario_id = usuarios.id
-            WHERE 1=1
-        '''
-        params = []
-        
-        if usuario_id:
-            query += " AND trades.usuario_id = %s"
-            params.append(usuario_id)
-        
-        query += " ORDER BY trades.fecha DESC LIMIT %s OFFSET %s"
-        params.extend([limit, skip])
-        
-        cursor.execute(query, params)
-        trades = [dict(row) for row in cursor.fetchall()]
+        consulta = select(Trade, Usuario.username, Usuario.email).join(Usuario, Trade.usuario_id == Usuario.id)
+        if usuario_id is not None:
+            consulta = consulta.where(Trade.usuario_id == usuario_id)
+        consulta = consulta.order_by(Trade.fecha.desc(), Trade.id.desc()).limit(limit).offset(skip)
 
-        for trade in trades:
-            trade["precio"] = float(trade["precio"])
-            trade["cantidad"] = float(trade["cantidad"])
-
-        conn.close()
-        return trades
-
+        with session_scope() as sesion:
+            return [
+                {**_trade_a_dict(trade), "username": username, "email": email}
+                for trade, username, email in sesion.execute(consulta).all()
+            ]
 
     def obtener_trade_db(self, trade_id):
         """Obtiene un trade específico"""
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        
-        cursor.execute("SELECT * FROM trades WHERE id = %s", (trade_id,))
-        row = cursor.fetchone()
-
-        conn.close()
-        
-        if row:
-            trade = dict(row)
-            trade["precio"] = float(trade["precio"])
-            trade["cantidad"] = float(trade["cantidad"])
-            return trade
-        return None
+        with session_scope() as sesion:
+            trade = sesion.get(Trade, trade_id)
+            return _trade_a_dict(trade) if trade else None
 
     def actualizar_trade_db(self, trade_id, **kwargs):
-        """Actualiza campos de un trade"""
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor()
-        
-        # Construir la query dinámicamente
-        campos = []
-        valores = []
-        for campo, valor in kwargs.items():
-            if valor is not None:
-                campos.append(f"{campo} = %s")
-                valores.append(valor)
-        
-        if not campos:
+        """Actualiza campos de un trade. Solo se aceptan tipo, activo, precio y cantidad."""
+        desconocidos = set(kwargs) - CAMPOS_ACTUALIZABLES
+        if desconocidos:
+            raise ValueError(f"Campos no actualizables: {', '.join(sorted(desconocidos))}")
+        valores = {k: v for k, v in kwargs.items() if v is not None}
+        if not valores:
             return False
-        
-        query = f"UPDATE trades SET {', '.join(campos)} WHERE id = %s"
-        valores.append(trade_id)
-        
-        cursor.execute(query, valores)
-        conn.commit()
-        filas_afectadas = cursor.rowcount
-        conn.close()
-        
-        return filas_afectadas > 0
+
+        with session_scope() as sesion:
+            resultado = sesion.execute(update(Trade).where(Trade.id == trade_id).values(**valores))
+            return resultado.rowcount > 0
 
     def eliminar_trade_db(self, trade_id):
         """Elimina un trade"""
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("DELETE FROM trades WHERE id = %s", (trade_id,))
-        conn.commit()
-        filas_afectadas = cursor.rowcount
-        conn.close()
-        
-        return filas_afectadas > 0
+        with session_scope() as sesion:
+            resultado = sesion.execute(delete(Trade).where(Trade.id == trade_id))
+            return resultado.rowcount > 0
 
-    def trades_por_fecha_db(self, desde: Optional[str] = None, hasta: Optional[str] = None, usuario_id: Optional[int] = None):
-        """Obtiene trades en un rango de fechas (opcionalmente de un solo usuario)"""
-        # Formato de fecha: YYYY-MM-DD
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        query = "SELECT * FROM trades WHERE 1=1"
-        params = []
-
+    def trades_por_fecha_db(self, desde: Optional[Union[str, date]] = None,
+                            hasta: Optional[Union[str, date]] = None,
+                            usuario_id: Optional[int] = None):
+        """Trades en un rango de fechas (inclusive), opcionalmente de un solo usuario."""
+        consulta = select(Trade)
         if usuario_id is not None:
-            query += " AND usuario_id = %s"
-            params.append(usuario_id)
-
+            consulta = consulta.where(Trade.usuario_id == usuario_id)
         if desde:
-            query += " AND fecha >= %s"
-            params.append(desde)
-        
+            consulta = consulta.where(Trade.fecha >= _a_datetime(desde))
         if hasta:
-            query += " AND fecha <= %s"
-            params.append(hasta + " 23:59")
-        
-        query += " ORDER BY fecha DESC"
-        
-        cursor.execute(query, params)
-        trades = [dict(row) for row in cursor.fetchall()]
+            consulta = consulta.where(Trade.fecha <= _a_datetime(hasta, fin_de_dia=True))
+        consulta = consulta.order_by(Trade.fecha.desc(), Trade.id.desc())
 
-        for trade in trades:
-            trade["precio"] = float(trade["precio"])
-            trade["cantidad"] = float(trade["cantidad"])
-
-        conn.close()
-        
-        return trades
+        with session_scope() as sesion:
+            return [_trade_a_dict(t) for t in sesion.execute(consulta).scalars()]
 
     def obtener_trades_paginado_db(self, usuario_id, page=1, per_page=20, orden="fecha", direccion="desc"):
         """Trades paginados y ordenados. Devuelve (trades, total)."""
-        columnas_validas = {"id", "tipo", "activo", "precio", "cantidad", "fecha"}
-        if orden not in columnas_validas:
+        if orden not in COLUMNAS_ORDENABLES:
             orden = "fecha"
-        direccion_sql = "ASC" if direccion.lower() == "asc" else "DESC"
+        columna = getattr(Trade, orden)
+        criterio = columna.asc() if direccion.lower() == "asc" else columna.desc()
         offset = (page - 1) * per_page
 
-        conn = TradingConnection().get_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-
-        cursor.execute(
-            "SELECT COUNT(*) AS total FROM trades WHERE usuario_id = %s",
-            (usuario_id,)
-        )
-        total = cursor.fetchone()["total"]
-
-        cursor.execute(
-            f"""
-            SELECT * FROM trades
-            WHERE usuario_id = %s
-            ORDER BY {orden} {direccion_sql}
-            LIMIT %s OFFSET %s
-            """,
-            (usuario_id, per_page, offset)
-        )
-        trades = [dict(row) for row in cursor.fetchall()]
-
-        for trade in trades:
-            trade["precio"] = float(trade["precio"])
-            trade["cantidad"] = float(trade["cantidad"])
-
-        conn.close()
-        return trades, total
+        with session_scope() as sesion:
+            total = sesion.execute(
+                select(func.count()).select_from(Trade).where(Trade.usuario_id == usuario_id)
+            ).scalar_one()
+            filas = sesion.execute(
+                select(Trade).where(Trade.usuario_id == usuario_id)
+                .order_by(criterio, Trade.id.desc()).limit(per_page).offset(offset)
+            ).scalars()
+            return [_trade_a_dict(t) for t in filas], total

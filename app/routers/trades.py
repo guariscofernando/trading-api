@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends
 from fastapi.responses import StreamingResponse
 from app.dto.TradeDTO import TradeCreate, TradeResponse, TradeUpdate
 from app.dao.TradeDAO import TradeDAO
-from datetime import datetime
+from datetime import date, datetime
 from typing import List, Optional
 from utils.authorization import get_current_user
 
@@ -75,35 +75,20 @@ def buscar_trades(
     tipo: Optional[str] = None,
     precio_min: Optional[float] = None,
     precio_max: Optional[float] = None,
-    fecha_desde: Optional[str] = None,
-    fecha_hasta: Optional[str] = None,
+    fecha_desde: Optional[date] = None,
+    fecha_hasta: Optional[date] = None,
     current_user: dict = Depends(get_current_user)
 ):
-    """Búsqueda avanzada con múltiples filtros (solo trades propios)"""
-
-    trades = dao.obtener_trades_db(usuario_id=current_user["id"], limit=10000)
-
-    resultados = trades
-
-    if activo:
-        resultados = [t for t in resultados if t["activo"].upper() == activo.upper()]
-
-    if tipo:
-        resultados = [t for t in resultados if t["tipo"].lower() == tipo.lower()]
-
-    if precio_min is not None:
-        resultados = [t for t in resultados if t["precio"] >= precio_min]
-
-    if precio_max is not None:
-        resultados = [t for t in resultados if t["precio"] <= precio_max]
-
-    if fecha_desde:
-        resultados = [t for t in resultados if t["fecha"] >= fecha_desde]
-
-    if fecha_hasta:
-        resultados = [t for t in resultados if t["fecha"] <= fecha_hasta + " 23:59"]
-
-    return resultados
+    """Búsqueda avanzada con múltiples filtros (solo trades propios). Fechas en formato YYYY-MM-DD, ambas inclusive."""
+    return dao.buscar_trades_db(
+        usuario_id=current_user["id"],
+        activo=activo,
+        tipo=tipo,
+        precio_min=precio_min,
+        precio_max=precio_max,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+    )
 
 @router.get("/exportar/csv")
 def exportar_csv(current_user: dict = Depends(get_current_user)):
@@ -210,8 +195,8 @@ def mejor_trade(current_user: dict = Depends(get_current_user)):
 
 @router.get("/resumen/por-fecha")
 def trades_por_fecha(
-    desde: Optional[str] = None,
-    hasta: Optional[str] = None,
+    desde: Optional[date] = None,
+    hasta: Optional[date] = None,
     current_user: dict = Depends(get_current_user)
 ):
     """Obtiene los trades propios en un rango de fechas"""
