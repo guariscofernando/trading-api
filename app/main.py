@@ -26,18 +26,21 @@ app = FastAPI(
 # Agregar rutas html estaticas
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Configuración CORS (leída desde variables de entorno via config.py)
+# Middlewares. En Starlette el ÚLTIMO que se añade es el más externo, y el orden importa:
+#   CORS (externo)  ->  Logging  ->  RateLimit (interno)  ->  rutas
+# - CORS por fuera: así también las respuestas 429 llevan las cabeceras CORS. Si el limitador estuviera
+#   fuera, un navegador vería un error de red en vez de un 429 legible (y no podría leer Retry-After).
+# - Logging por fuera del limitador: las peticiones rechazadas también quedan en el log.
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(LoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
-
-# Agregar middlewares (el orden importa)
-app.add_middleware(LoggingMiddleware)
-app.add_middleware(RateLimitMiddleware, max_requests=100, window_seconds=60)
 
 # Incluir routers
 app.include_router(users.router)
@@ -142,4 +145,6 @@ def api_info():
 
 @app.on_event("startup")
 async def iniciar_tareas_background():
+    for aviso in config.avisos_produccion():
+        logger.warning(aviso)
     asyncio.create_task(verificar_alertas())

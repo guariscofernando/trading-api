@@ -38,4 +38,8 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Aplica las migraciones y luego arranca. Si la migración falla, el contenedor termina con error
 # (el despliegue se marca como fallido) en lugar de servir tráfico con un esquema a medias.
 # Con varias instancias a la vez, Alembic las serializa con un bloqueo de PostgreSQL.
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
+# --no-proxy-headers: uvicorn NO debe reescribir la IP del cliente a partir de X-Forwarded-For. Si alguien define
+# FORWARDED_ALLOW_IPS='*' (algo que recomiendan algunas guías de PaaS), uvicorn tomaría la entrada MÁS A LA IZQUIERDA
+# de la cabecera, que escribe el propio cliente, y el rate limit y el bloqueo del login se evadirían cambiando una
+# cabecera. La IP real la calcula la aplicación (TRUSTED_PROXY_COUNT, ver README).
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --no-proxy-headers"]

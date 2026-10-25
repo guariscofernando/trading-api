@@ -15,6 +15,7 @@ API REST para gestionar trades de criptomonedas, con autenticación JWT, anális
 - ✅ Integración con Binance Testnet (precios, balance y órdenes)
 - ✅ Gestión de riesgo: tamaño de posición por riesgo fijo, stop-loss/take-profit, límites y análisis de riesgo del portafolio
 - ✅ Backtesting de estrategias (cruce de medias, RSI) con comisiones, slippage y gestión de riesgo
+- ✅ Rate limit por IP real (también detrás de proxies y con WebSockets) y bloqueo del login contra fuerza bruta
 - ✅ Métricas del sistema y listado de endpoints
 - ✅ Tests con Pytest
 - ✅ Deploy en Render.com
@@ -25,6 +26,7 @@ API REST para gestionar trades de criptomonedas, con autenticación JWT, anális
 - FastAPI
 - PostgreSQL 16 (Docker / docker-compose en local, [Neon](https://neon.tech) en producción)
 - SQLAlchemy 2.0 (ORM síncrono con pool de conexiones) + Alembic (migraciones), con psycopg2 como driver
+- Redis (opcional, solo para compartir los contadores del rate limit entre varias instancias)
 - Binance Testnet (python-binance)
 - JWT (python-jose)
 - bcrypt (passlib)
@@ -132,6 +134,12 @@ COINGECKO_API_KEY=tu_api_key_coingecko
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Credenciales de la base que crea `docker-compose` |
 | `DATABASE_URL` | Cadena de conexión. Para correr la API fuera de Docker usa `localhost`; dentro del compose se sobrescribe con el host `db` |
 | `CORS_ORIGINS` | Orígenes permitidos, separados por coma |
+| `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Peticiones permitidas por IP en cada ventana de tantos segundos (por defecto `100` cada `60`) |
+| `LOGIN_RATE_LIMIT` | `POST /usuarios/login` por IP y minuto (por defecto `20`) |
+| `REGISTER_RATE_LIMIT` | `POST /usuarios/registro` por IP y hora (por defecto `10`) |
+| `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS` | Fallos de login por (IP, usuario) antes de bloquear (por defecto `5`) y duración del bloqueo en segundos (por defecto `900`) |
+| `TRUSTED_PROXY_COUNT` | Proxies de confianza entre el cliente y la app (por defecto `0`). **Imprescindible detrás de Render/Railway/Cloudflare**; ver [Rate limit y protección del login](#rate-limit-y-protección-del-login) |
+| `REDIS_URL` | `redis://...` o `rediss://...` para compartir los contadores entre instancias (opcional; vacío = memoria del proceso) |
 | `DB_POOL_SIZE` | Conexiones que cada proceso mantiene abiertas hacia PostgreSQL (por defecto `5`) |
 | `DB_MAX_OVERFLOW` | Conexiones extra que se pueden abrir en picos (por defecto `10`) |
 | `DB_POOL_TIMEOUT` | Segundos que una petición espera una conexión libre antes de fallar (por defecto `10`) |
@@ -167,6 +175,64 @@ alembic upgrade head --sql                        # muestra el SQL sin ejecutarl
 - **Dimensionar el pool:** el máximo de conexiones hacia la base es `(DB_POOL_SIZE + DB_MAX_OVERFLOW) × número de procesos`.
   Debe quedar por debajo del límite de tu plan de PostgreSQL (en Neon gratuito es bajo: reduce los valores si ves errores de conexión).
 - `DATABASE_URL` acepta tanto `postgresql://` como `postgres://` (algunos proveedores entregan este último).
+
+## Rate limit y protección del login
+
+**Límites por IP** (ventana fija; configurables, ver la tabla de variables):
+
+| Qué | Límite por defecto |
+|-----|--------------------|
+| Cualquier petición (y cada conexión WebSocket nueva) | 100 cada 60 s |
+| `POST /usuarios/login` | 20 por minuto |
+| `POST /usuarios/registro` | 10 por hora |
+
+Al superarlo la API responde `429` con `Retry-After` (segundos a esperar). Las respuestas normales llevan `X-RateLimit-Limit`, `X-RateLimit-Remaining` y
+`X-RateLimit-Reset`. `/health` no gasta cupo. Una conexión WebSocket rechazada recibe un `403` en el handshake.
+
+**Bloqueo del login por intentos fallidos.** Se cuentan los fallos en tres cubos y basta con que uno llegue a su tope para recibir `429` hasta que termine
+el bloqueo (`LOGIN_LOCKOUT_SECONDS`):
+
+| Cubo | Tope (con `LOGIN_MAX_FAILURES=5`) | Frena |
+|------|-----------------------------------|-------|
+| IP + usuario | 5 | probar contraseñas de una cuenta |
+| usuario | 20 | un ataque repartido entre muchas IPs |
+| IP | 30 | probar muchos usuarios desde una IP |
+
+- Los fallos de usuarios que **no existen** cuentan igual, así el `429` no revela qué cuentas existen. El login también tarda lo mismo exista o no el usuario.
+- Durante un bloqueo **ni la contraseña correcta entra**. Un login correcto reinicia solo el cubo (IP + usuario), no el del usuario.
+- Compromiso conocido: con el cubo «usuario», alguien con muchas IPs puede bloquear una cuenta ajena durante `LOGIN_LOCKOUT_SECONDS`. Es el precio de frenar ataques distribuidos;
+  desde su propia IP la víctima nunca queda bloqueada por un tercero a través del cubo «IP + usuario».
+- El nombre de usuario no distingue mayúsculas en el login, y las contraseñas de más de 72 bytes se rechazan en el registro (límite de bcrypt).
+
+### Configurar `TRUSTED_PROXY_COUNT` (importante en producción)
+
+Detrás de un proxy (Render, Railway, Cloudflare...) el «cliente» que ve la app es el proxy, y **todos los usuarios compartirían un único cupo**.
+Para usar la IP real hay que decirle a la app cuántos proxies de confianza hay entre el cliente e ella:
+
+- `TRUSTED_PROXY_COUNT=0` (por defecto): `X-Forwarded-For` se **ignora por completo**. Es lo seguro en local o sin proxy.
+- `TRUSTED_PROXY_COUNT=N`: la IP del cliente es la entrada N contando **desde la derecha** de `X-Forwarded-For` (cada proxy de confianza añade la dirección de
+  quien le habló). Lo que haya a la izquierda lo escribe el cliente y se ignora, así que falsificar la cabecera no sirve para evadir el límite.
+- Si la cabecera tiene menos entradas que `N` o no contiene una IP, se usa la dirección del socket.
+- Las IPv6 se agrupan por `/64` (un cliente suele controlar un `/64` entero) y las IPv4 mapeadas en IPv6 cuentan como IPv4.
+
+**Cómo saber qué valor poner:** el número depende de tu infraestructura y no se puede deducir desde el código. Despliega con `TRUSTED_PROXY_COUNT=1`, haz una petición
+desde tu casa y mira la línea `→ GET /... ip=<dirección>` del log: si `<dirección>` es tu IP pública, está bien; si es siempre la misma para todos o es una IP
+de la plataforma, prueba con `2` (por ejemplo, Cloudflare delante de otro proxy). Con un valor demasiado alto la app usará una entrada que escribe el cliente.
+Con `ENVIRONMENT=production` y `TRUSTED_PROXY_COUNT=0` la app deja un aviso en el log al arrancar.
+
+> ⚠️ **No uses `FORWARDED_ALLOW_IPS=*` ni `--forwarded-allow-ips='*'` con uvicorn.** Algunas guías lo recomiendan, pero uvicorn pasaría a tomar la entrada **más a la
+> izquierda** de `X-Forwarded-For` (la escribe el cliente) y bastaría cambiar esa cabecera para evadir el rate limit y el bloqueo del login. El `Dockerfile` y el `Procfile`
+> arrancan con `--no-proxy-headers` para que uvicorn no toque la IP del cliente; la única que cuenta es la que calcula `TRUSTED_PROXY_COUNT`.
+
+### Una instancia o varias (Redis)
+
+- **Sin `REDIS_URL`** los contadores viven en la memoria del proceso: correcto con **una sola instancia y un solo worker** (como viene configurado).
+- Con **varias instancias o workers** cada una contaría por su cuenta y el límite real se multiplicaría. Ahí hay que definir `REDIS_URL` (por ejemplo, un Redis
+  administrado de tu plataforma) para compartir los contadores. Cada operación es atómica.
+- Si Redis falla, la API **no se cae**: usa contadores locales por instancia durante unos segundos, deja un aviso en el log y vuelve a intentar Redis. Mientras
+  tanto la protección es «por instancia».
+- Con Redis, el límite se aplica **a cada petición** y añade una ida y vuelta de red (con tiempos de espera de 0,3 s).
+- Los límites no sustituyen a una protección en el borde (Cloudflare, WAF) contra un ataque de denegación de servicio volumétrico: el tráfico llega igualmente hasta la app.
 
 ## Autenticación
 
@@ -206,7 +272,7 @@ La columna **Auth** indica si el endpoint requiere JWT (🔒) o es público (�
 | GET | `/health` | 🌐 | Health check (usado por Docker) |
 | GET | `/info` | 🌐 | Información de la API |
 
-La API aplica un límite de **100 peticiones por 60 segundos** (rate limit) y registra cada petición mediante un middleware de logging. Los archivos estáticos se sirven desde `/static`.
+La API aplica un límite de peticiones por IP (por defecto **100 por 60 segundos**; ver [Rate limit y protección del login](#rate-limit-y-protección-del-login)) y registra cada petición mediante un middleware de logging. Los archivos estáticos se sirven desde `/static`.
 
 ### Usuarios — `/usuarios`
 
@@ -455,6 +521,9 @@ Si `DATABASE_URL` (o el `.env`) apunta a una base cuyo nombre no termina en `_te
 El esquema de los tests se crea con `alembic upgrade head`, es decir, con las mismas migraciones que producción.
 Los tests de riesgo y backtesting usan series sintéticas con resultados calculados a mano; no necesitan red.
 
+Los tests del rate limit prueban el almacén Redis con `fakeredis` y, **si defines `TEST_REDIS_URL`**, también contra un Redis real
+(`export TEST_REDIS_URL=redis://localhost:6379/15`; sin ella esos casos se omiten). Usa una instancia o base de **pruebas**: esos tests borran las claves `trading-api:rl:*`.
+
 Además de las variables de la sección [Configuración](#configuración) (`SECRET_KEY`, `ALGORITHM`, etc.), no se necesita
 conexión a Binance ni a CoinGecko para correr la suite.
 
@@ -470,6 +539,8 @@ La API se puede desplegar en plataformas como Render o Railway usando el `Docker
   - `DATABASE_URL` con la connection string de tu base en [Neon](https://neon.tech) (PostgreSQL administrado). Debe incluir `?sslmode=require`. Si falta esta variable o apunta a `localhost` (la base local de Docker), la app no arranca
   - `SECRET_KEY` distinta a la de desarrollo
   - `CORS_ORIGINS` con la URL de tu frontend
+  - `TRUSTED_PROXY_COUNT` con el número de proxies delante de la app (si lo dejas en `0`, todos los usuarios compartirán un solo cupo de rate limit)
+  - `REDIS_URL` solo si ejecutas más de una instancia o worker
   - `BINANCE_API_KEY`, `BINANCE_SECRET_KEY` y `BINANCE_TESTNET=true`
 - **Región:** Binance bloquea conexiones desde ciertas regiones (por ejemplo, servidores en EE. UU.). Si el arranque falla con el error `Service unavailable from a restricted location`, elige una región de Europa o Asia para el servicio. Probado: Railway en Países Bajos y Render en Frankfurt. En Render la región no se puede cambiar en un servicio existente: hay que crear uno nuevo.
 

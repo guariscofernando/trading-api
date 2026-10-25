@@ -50,6 +50,18 @@ class Config:
     # DEBUG
     DEBUG = os.getenv("DEBUG", "false").lower() == "true"
     
+    # LÍMITE DE PETICIONES (rate limit)
+    RATE_LIMIT_REQUESTS = _entero("RATE_LIMIT_REQUESTS", 100)    # peticiones por IP...
+    RATE_LIMIT_WINDOW = _entero("RATE_LIMIT_WINDOW", 60)         # ...en estos segundos
+    LOGIN_RATE_LIMIT = _entero("LOGIN_RATE_LIMIT", 20)           # POST /usuarios/login por IP y minuto
+    REGISTER_RATE_LIMIT = _entero("REGISTER_RATE_LIMIT", 10)     # POST /usuarios/registro por IP y hora
+    LOGIN_MAX_FAILURES = _entero("LOGIN_MAX_FAILURES", 5)        # fallos por (IP, usuario) antes de bloquear
+    LOGIN_LOCKOUT_SECONDS = _entero("LOGIN_LOCKOUT_SECONDS", 900)  # ventana de fallos / duración del bloqueo
+    # Proxies de confianza delante de la app (0 = ninguno: se ignora X-Forwarded-For).
+    TRUSTED_PROXY_COUNT = _entero("TRUSTED_PROXY_COUNT", 0)
+    # Contadores compartidos entre instancias (opcional). Vacío = memoria del proceso.
+    REDIS_URL = os.getenv("REDIS_URL", "").strip()
+
     # JWT
     SECRET_KEY = os.getenv("SECRET_KEY")
     ALGORITHM = os.getenv("ALGORITHM")
@@ -58,6 +70,24 @@ class Config:
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"
+
+    def avisos_produccion(self) -> list:
+        """Configuraciones válidas pero probablemente incorrectas en producción (se registran al arrancar)."""
+        if not self.is_production:
+            return []
+        avisos = []
+        if self.TRUSTED_PROXY_COUNT == 0:
+            avisos.append(
+                "TRUSTED_PROXY_COUNT=0: si la API está detrás de un proxy (Render, Railway, Cloudflare...) "
+                "todos los clientes compartirán un único cupo de rate limit. Configúralo con el número de "
+                "proxies de confianza (ver README)."
+            )
+        if not self.REDIS_URL:
+            avisos.append(
+                "REDIS_URL vacío: el rate limit y el bloqueo del login usan memoria del proceso. Es correcto con "
+                "UNA sola instancia; con varias, los límites se multiplican por el número de instancias."
+            )
+        return avisos
 
     def validate(self) -> None:
         """Falla al arrancar, con un mensaje claro, si la configuración es inválida."""
@@ -82,6 +112,15 @@ class Config:
                 raise RuntimeError(f"{nombre} debe ser mayor o igual que 1")
         if self.DB_MAX_OVERFLOW < 0:
             raise RuntimeError("DB_MAX_OVERFLOW no puede ser negativo")
+
+        for nombre in ("RATE_LIMIT_REQUESTS", "RATE_LIMIT_WINDOW", "LOGIN_RATE_LIMIT",
+                       "REGISTER_RATE_LIMIT", "LOGIN_MAX_FAILURES", "LOGIN_LOCKOUT_SECONDS"):
+            if getattr(self, nombre) < 1:
+                raise RuntimeError(f"{nombre} debe ser mayor o igual que 1")
+        if not 0 <= self.TRUSTED_PROXY_COUNT <= 10:
+            raise RuntimeError("TRUSTED_PROXY_COUNT debe estar entre 0 y 10")
+        if self.REDIS_URL and not self.REDIS_URL.startswith(("redis://", "rediss://", "unix://")):
+            raise RuntimeError("REDIS_URL debe empezar por redis://, rediss:// o unix://")
 
         if self.ALGORITHM not in ("HS256", "HS384", "HS512"):
             raise RuntimeError(
