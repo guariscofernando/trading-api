@@ -1,25 +1,42 @@
 # app/routers/users.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from app.dto.UserDTO import UsuarioCreate, UsuarioResponse, UsuarioLogin
 from app.dao.UserDAO import UserDAO
 from datetime import datetime
-from utils.authorization import get_current_user, hash_password, verify_password, create_access_token
+from app.services import login_guard
+from app.services.ratelimit import ip_cliente
+from utils.authorization import (
+    HASH_FICTICIO, create_access_token, get_current_user, hash_password, verify_password,
+)
 
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 dao = UserDAO()
 
 @router.post("/login")
-def login(datos: UsuarioLogin):
-    # Buscar usuario
+def login(datos: UsuarioLogin, request: Request):
+    ip = ip_cliente(request.scope)
+
+    # Bloqueo por intentos fallidos (ver app/services/login_guard.py)
+    espera = login_guard.segundos_de_bloqueo(ip, datos.username)
+    if espera:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Demasiados intentos fallidos. Intenta de nuevo en {espera} segundos.",
+            headers={"Retry-After": str(espera)},
+        )
+
     usuario = dao.obtener_usuario_por_username(datos.username)
-    
-    if not usuario:
+
+    # Se verifica SIEMPRE un hash, exista o no el usuario: así ambos casos tardan lo mismo.
+    hash_a_comparar = usuario["password_hash"] if usuario else HASH_FICTICIO
+    contrasena_correcta = verify_password(datos.password, hash_a_comparar)
+
+    if not usuario or not contrasena_correcta:
+        login_guard.registrar_fallo(ip, datos.username)
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    
-    # Verificar contraseña
-    if not verify_password(datos.password, usuario["password_hash"]):
-        raise HTTPException(status_code=401, detail="Credenciales inválidas")
-    
+
+    login_guard.registrar_exito(ip, datos.username)
+
     # Generar token
     token = create_access_token(data={"sub": str(usuario["id"])})
     

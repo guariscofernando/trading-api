@@ -5,7 +5,6 @@ from fastapi import HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.config import config
 from app.dao.UserDAO import UserDAO
-from app.config import config
 import bcrypt
 
 
@@ -25,7 +24,17 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verifica si la contraseña coincide con el hash"""
-    return bcrypt.checkpw(plain_password.encode(config.ENCODE), hashed_password.encode(config.ENCODE))
+    try:
+        return bcrypt.checkpw(plain_password.encode(config.ENCODE), hashed_password.encode(config.ENCODE))
+    except ValueError:
+        # bcrypt solo admite contraseñas de hasta 72 bytes (los caracteres no ASCII ocupan varios) y
+        # lanza ValueError con más: nunca puede coincidir. Un hash corrupto también cae aquí.
+        return False
+
+# Hash de una contraseña que nadie puede conocer. El login lo compara cuando el usuario NO existe,
+# para tardar lo mismo que con un usuario real: si no, el tiempo de respuesta (4 ms frente a ~300 ms)
+# delataría qué nombres de usuario están registrados.
+HASH_FICTICIO = hash_password("contraseña-ficticia-que-nadie-conoce")
 
 def create_access_token(data: dict, expires_delta: timedelta = None) -> str:
     """Genera un token JWT"""

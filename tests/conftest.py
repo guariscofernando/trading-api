@@ -44,7 +44,7 @@ from sqlalchemy import inspect, text  # noqa: E402
 from app.config import config  # noqa: E402
 from app.database import engine  # noqa: E402
 from app.main import app  # noqa: E402
-from app.middleware import RateLimitMiddleware  # noqa: E402
+from app.services.ratelimit import limitador  # noqa: E402
 
 # 2) Red de seguridad: lo que vale es la base a la que la app REALMENTE se conecta.
 _db_real = (config.DATABASE_URL or "").split("?")[0].rstrip("/").rsplit("/", 1)[-1]
@@ -79,14 +79,9 @@ def _vaciar_tablas():
             conexion.execute(text("TRUNCATE " + ", ".join(existentes) + " RESTART IDENTITY CASCADE"))
 
 
-def _reiniciar_rate_limit(aplicacion):
-    """El rate limiter guarda estado en memoria: lo limpiamos entre tests."""
-    capa = getattr(aplicacion, "middleware_stack", None)
-    while capa is not None:
-        if isinstance(capa, RateLimitMiddleware):
-            capa.requests.clear()
-            return
-        capa = getattr(capa, "app", None)
+def _reiniciar_rate_limit():
+    """Los contadores del limitador (y del bloqueo del login) persisten entre peticiones: se vacían por test."""
+    limitador.reiniciar()
 
 
 @pytest.fixture
@@ -101,7 +96,7 @@ def db_limpia():
 def client():
     _vaciar_tablas()
     with TestClient(app) as c:
-        _reiniciar_rate_limit(app)
+        _reiniciar_rate_limit()
         yield c
     _vaciar_tablas()
 
