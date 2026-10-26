@@ -1,4 +1,5 @@
 # app/middleware.py
+import re
 import time
 import logging
 from dataclasses import dataclass
@@ -18,6 +19,31 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("trading-api")
+
+_TOKEN_EN_URL = re.compile(r"([?&]token=)[^&\s\"]+")
+
+
+class OcultarTokenEnLogs(logging.Filter):
+    """Tapa el valor de ?token=... en los logs de uvicorn.
+
+    Los WebSockets (/ws/chat, /ws/notificaciones) reciben el JWT en la URL y uvicorn escribe la
+    URL completa: sin este filtro cualquiera que lea los logs podría usar los tokens (válidos 60 min).
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(_TOKEN_EN_URL.sub(r"\1***", a) if isinstance(a, str) else a for a in record.args)
+        if isinstance(record.msg, str):
+            record.msg = _TOKEN_EN_URL.sub(r"\1***", record.msg)
+        return True
+
+
+def instalar_filtro_de_tokens() -> None:
+    # Las peticiones http van a uvicorn.access, pero las conexiones WebSocket se registran en uvicorn.error.
+    for nombre in ("uvicorn.access", "uvicorn.error"):
+        registro = logging.getLogger(nombre)
+        if not any(isinstance(x, OcultarTokenEnLogs) for x in registro.filters):
+            registro.addFilter(OcultarTokenEnLogs())
+
 
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):

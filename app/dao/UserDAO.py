@@ -32,3 +32,12 @@ class UserDAO:
 
     def obtener_usuario_por_id(self, user_id):
         return self._uno(Usuario.id == user_id)
+
+    def cambiar_rol(self, username, rol):
+        """Cambia el rol de un usuario existente. Devuelve True si lo encontró."""
+        with session_scope() as sesion:
+            usuario = sesion.execute(select(Usuario).where(Usuario.username == username)).scalar_one_or_none()
+            if usuario is None:
+                return False
+            usuario.rol = rol
+            return True

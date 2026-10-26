@@ -35,6 +35,10 @@ class Usuario(Base):
     email: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     creado_en: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+    # 'usuario' (por defecto) o 'admin'. Nunca se asigna desde la API pública: ver scripts/gestionar_roles.py.
+    rol: Mapped[str] = mapped_column(String(20), nullable=False, server_default="usuario")
+
+    __table_args__ = (CheckConstraint("rol IN ('usuario', 'admin')", name="usuarios_rol_check"),)
 
 
 class Trade(Base):

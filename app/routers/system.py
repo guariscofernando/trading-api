@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from collections import defaultdict
 import psutil
 import os
-from utils.authorization import get_current_user
+from utils.authorization import require_admin
 
 router = APIRouter(prefix="/system", tags=["System"])
 
@@ -11,8 +11,8 @@ router = APIRouter(prefix="/system", tags=["System"])
 endpoint_counts = defaultdict(int)
 
 @router.get("/metrics")
-def get_metrics(current_user: dict = Depends(get_current_user)):
-    """Métricas del sistema (requiere autenticación)"""
+def get_metrics(admin: dict = Depends(require_admin)):
+    """Métricas del sistema (solo administradores)"""
     return {
         "peticiones_por_endpoint": dict(endpoint_counts),
         "memoria_usada_mb": round(psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024, 2),
@@ -20,8 +20,8 @@ def get_metrics(current_user: dict = Depends(get_current_user)):
     }
 
 @router.get("/endpoints")
-def list_endpoints(current_user: dict = Depends(get_current_user)):
-    """Lista todos los endpoints registrados (requiere autenticación)"""
+def list_endpoints(admin: dict = Depends(require_admin)):
+    """Lista todos los endpoints registrados (solo administradores)"""
     from app.main import app
     
     endpoints = []

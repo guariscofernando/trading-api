@@ -82,7 +82,7 @@ def _borrar_todo():
 def _huella_de_datos():
     with engine.connect() as c:
         return c.execute(text(
-            "SELECT md5((SELECT string_agg(u::text,'|' ORDER BY id) FROM usuarios u)"
+            "SELECT md5((SELECT string_agg(ROW(u.id,u.username,u.email,u.password_hash,u.creado_en)::text,'|' ORDER BY id) FROM usuarios u)"
             "||(SELECT string_agg(t::text,'|' ORDER BY id) FROM trades t)"
             "||(SELECT string_agg(o::text,'|' ORDER BY id) FROM orders o))"
         )).scalar_one()
@@ -116,7 +116,7 @@ def test_el_esquema_migrado_coincide_con_los_modelos():
 
 
 def test_la_base_queda_en_la_ultima_version():
-    assert _version() == "0002"
+    assert _version() == "0003"
     assert _largo_coin_id() == 64
 
 
@@ -132,7 +132,7 @@ def test_base_existente_con_datos_se_migra_sin_perder_nada(restaurar_esquema):
     command.upgrade(alembic_config(), "head")
 
     assert _huella_de_datos() == antes, "la migración modificó datos existentes"
-    assert _version() == "0002"
+    assert _version() == "0003"
     assert _largo_coin_id() == 64
     with engine.connect() as c:
         assert c.execute(text("SELECT coin_id FROM watchlist")).scalar_one() == "bitcoin"
@@ -146,7 +146,7 @@ def test_base_existente_con_datos_se_migra_sin_perder_nada(restaurar_esquema):
 def test_ejecutar_dos_veces_no_hace_nada(restaurar_esquema):
     command.upgrade(alembic_config(), "head")
     command.upgrade(alembic_config(), "head")
-    assert _version() == "0002"
+    assert _version() == "0003"
 
 
 def test_base_vacia_se_crea_completa(restaurar_esquema):

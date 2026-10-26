@@ -9,10 +9,11 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from app.routers import trades, users, precios, analisis, websocket, dashboard, binance_router, orders_router, system, riesgo_router, backtest_router
 from app.config import config
-from app.middleware import LoggingMiddleware, RateLimitMiddleware
+from app.middleware import LoggingMiddleware, RateLimitMiddleware, instalar_filtro_de_tokens
 from app.routers.websocket import verificar_alertas
 
 logger = logging.getLogger("trading-api")
+instalar_filtro_de_tokens()
 
 app = FastAPI(
     title=config.APP_NAME,

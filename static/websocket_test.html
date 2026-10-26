@@ -24,6 +24,7 @@
     </script>
     
     <script>
+        const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkwNDQ4NTAwfQ.6WwHX0Osa9mevTLbjTZJ3oJ8PLoPUX2XPCPrunoj1As";
         // WebSocket de precios
         const wsPrecios = new WebSocket("ws://localhost:8000/ws/precios-reales");
         wsPrecios.onmessage = function(event) {
@@ -39,11 +40,14 @@
         };
         
         // WebSocket de chat
-        const wsChat = new WebSocket("ws://localhost:8000/ws/chat");
+        const wsChat = new WebSocket(`ws://localhost:8000/ws/chat?token=${TOKEN}`);
         
         wsChat.onmessage = function(event) {
             const div = document.getElementById("chat");
-            div.innerHTML += `<p>${event.data}</p>`;
+            const m = JSON.parse(event.data);
+            const p = document.createElement("p");   // textContent: nunca innerHTML con texto de otros usuarios
+            p.textContent = m.tipo === "mensaje" ? `${m.usuario}: ${m.mensaje}` : m.mensaje;
+            div.appendChild(p);
         };
         
         function enviarMensaje() {
@@ -53,7 +57,6 @@
         }
 
         // WebSocket de notificaicones
-        const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIiwiZXhwIjoxNzkwNDQ4NTAwfQ.6WwHX0Osa9mevTLbjTZJ3oJ8PLoPUX2XPCPrunoj1As";
         const wsNotif = new WebSocket(`ws://localhost:8000/ws/notificaciones?token=${TOKEN}`);
 
         wsNotif.onopen = () => {

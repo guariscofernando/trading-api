@@ -170,6 +170,7 @@ alembic upgrade head --sql                        # muestra el SQL sin ejecutarl
 - Si cambias `app/models.py`, **crea su migración**: los tests fallan si los modelos y las migraciones difieren.
 - La migración `0001` adopta el esquema que ya existía: en una base con las tablas creadas por la versión anterior **no modifica nada**; en una base vacía crea todo.
   La `0002` ensancha `watchlist.coin_id` a 64 caracteres (los IDs de CoinGecko no cabían en 10).
+  La `0003` añade `usuarios.rol` (`usuario` | `admin`); los usuarios existentes quedan como `usuario`.
 - Con varias instancias arrancando a la vez, Alembic las serializa con un bloqueo de PostgreSQL: una migra y las demás esperan.
 - `alembic downgrade base` **borra todas las tablas y sus datos**; solo para desarrollo.
 - **Dimensionar el pool:** el máximo de conexiones hacia la base es `(DB_POOL_SIZE + DB_MAX_OVERFLOW) × número de procesos`.
@@ -234,6 +235,22 @@ Con `ENVIRONMENT=production` y `TRUSTED_PROXY_COUNT=0` la app deja un aviso en e
 - Con Redis, el límite se aplica **a cada petición** y añade una ida y vuelta de red (con tiempos de espera de 0,3 s).
 - Los límites no sustituyen a una protección en el borde (Cloudflare, WAF) contra un ataque de denegación de servicio volumétrico: el tráfico llega igualmente hasta la app.
 
+## Roles (administradores)
+
+Hay dos roles: `usuario` (por defecto) y `admin`. Solo los administradores pueden ver/vaciar el caché (`/precios/cache/*`) y ver `/system/*` (marcados con 👑); los demás
+reciben **403**. El rol se lee de la base en **cada petición**, así que quitárselo a alguien surte efecto al instante, aunque conserve su token.
+
+La API pública **nunca** asigna roles: el registro ignora cualquier campo `rol`. El primer admin se crea desde una shell de la instancia, después de que esa persona se registre:
+
+```bash
+python scripts/gestionar_roles.py promover ana    # -> admin
+python scripts/gestionar_roles.py degradar ana    # -> usuario
+python scripts/gestionar_roles.py listar          # quiénes son admin
+```
+
+(`docker compose exec api python scripts/gestionar_roles.py promover ana` si usas Docker.) Tras promover, `ana` no tiene que volver a iniciar sesión.
+`GET /usuarios/me` y el login devuelven el campo `rol`.
+
 ## Autenticación
 
 Los endpoints protegidos requieren un token JWT en el header:
@@ -260,7 +277,7 @@ La respuesta del login incluye `access_token`, `token_type` y los datos básicos
 
 ## Endpoints
 
-La columna **Auth** indica si el endpoint requiere JWT (🔒) o es público (🌐).
+La columna **Auth** indica si el endpoint requiere JWT (🔒), es público (🌐) o exige además el rol de administrador (👑, ver [Roles](#roles-administradores)).
 
 > **Aislamiento por usuario:** todos los endpoints de `/trades` (búsqueda, CSV, estadísticas, resúmenes y P&L) devuelven únicamente los trades del usuario autenticado.
 
@@ -331,8 +348,8 @@ curl -X POST http://localhost:8000/trades/ \
 | GET | `/precios/{coin_id}` | 🌐 | Precio actual. Query: `moneda` (default `usd`), `use_cache` (default `true`) |
 | GET | `/precios/multiples?coins=bitcoin,ethereum` | 🌐 | Precios de varias monedas. Query: `coins`, `moneda` |
 | GET | `/precios/buscar/{query}` | 🌐 | Buscar moneda por nombre (máx. 10 resultados) |
-| GET | `/precios/cache/stats` | 🔒 | Estadísticas del caché |
-| DELETE | `/precios/cache/clear` | 🔒 | Limpiar el caché |
+| GET | `/precios/cache/stats` | 👑 | Estadísticas del caché (solo admin) |
+| DELETE | `/precios/cache/clear` | 👑 | Limpiar el caché (solo admin) |
 
 Los `coin_id` son los IDs de CoinGecko (`bitcoin`, `ethereum`, etc.). El precio individual se cachea 30 segundos.
 
@@ -469,8 +486,8 @@ mejor/peor operación y tiempo en el mercado. `advertencias` avisa, por ejemplo,
 
 | Método | Ruta | Auth | Descripción |
 |--------|------|------|-------------|
-| GET | `/system/metrics` | 🔒 | Memoria, CPU y contador de peticiones |
-| GET | `/system/endpoints` | 🔒 | Lista de todos los endpoints registrados |
+| GET | `/system/metrics` | 👑 | Memoria, CPU y contador de peticiones |
+| GET | `/system/endpoints` | 👑 | Lista de todos los endpoints registrados |
 
 ## WebSockets
 
@@ -478,8 +495,25 @@ mejor/peor operación y tiempo en el mercado. `advertencias` avisa, por ejemplo,
 |------|------|-------------|
 | `/ws/precios` | 🌐 | Precios **simulados** de BTC, ETH y SOL cada 5 s |
 | `/ws/precios-reales` | 🌐 | Precios reales de CoinGecko (bitcoin, ethereum, solana) cada 30 s |
-| `/ws/chat` | 🌐 | Chat simple: reenvía cada mensaje a todos los clientes |
+| `/ws/chat?token=<jwt>` | 🔒 | Chat entre usuarios con sesión, con límite de mensajes (ver abajo) |
 | `/ws/notificaciones?token=<jwt>` | 🔒 | Notificaciones personales del usuario |
+
+### Chat
+
+```
+ws://localhost:8000/ws/chat?token=<access_token>
+```
+
+- Sin token válido el servidor rechaza la conexión antes de aceptarla (cierre `1008`; el navegador lo ve como un 403).
+- Cada mensaje se reenvía como `{"tipo": "mensaje", "usuario": "ana", "mensaje": "hola"}`. El autor sale **del token**, no de lo que escriba el cliente.
+- **Límite por usuario** (no por conexión): `CHAT_MAX_MESSAGES` mensajes cada `CHAT_WINDOW_SECONDS` (por defecto 10 cada 10 s). Los que sobran se descartan y el cliente
+  recibe `{"tipo": "error", "mensaje": "...", "reintentar_en": N}`; la conexión sigue abierta.
+- Un mensaje de más de `CHAT_MAX_LENGTH` caracteres (500) cierra la conexión con código `1009`. Los vacíos se ignoran.
+- Máximo `CHAT_MAX_CONNECTIONS_PER_USER` conexiones simultáneas por usuario (3).
+- El token solo se comprueba al conectar: si caduca con el chat abierto, la conexión sigue hasta que se cierre.
+- Los mensajes **no se guardan**: solo los reciben quienes están conectados en ese momento.
+- El token viaja en la URL, así que el servidor **tapa `token=...` en los logs de uvicorn** (`OcultarTokenEnLogs`). Cuida que un proxy o CDN delante tampoco registre
+  la URL completa de los WebSockets.
 
 ### Notificaciones
 

@@ -40,6 +40,7 @@ class UsuarioResponse(BaseModel):
     username: str
     email: str
     creado_en: str
+    rol: str = "usuario"
 
     @field_validator('creado_en', mode='before')
     @classmethod

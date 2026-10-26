@@ -75,3 +75,14 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
     
     return usuario
+
+
+def require_admin(usuario: dict = Depends(get_current_user)):
+    """Dependencia: solo deja pasar a administradores (403 al resto).
+
+    El rol se lee de la base en cada petición (get_current_user), no del token: quitar el rol
+    a alguien surte efecto de inmediato, sin esperar a que caduque su token.
+    """
+    if usuario.get("rol") != "admin":
+        raise HTTPException(status_code=403, detail="Se requiere rol de administrador")
+    return usuario

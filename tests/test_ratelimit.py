@@ -499,11 +499,21 @@ def test_se_ve_la_ip_resuelta_en_el_log_para_poder_comprobar_la_configuracion(cl
 
 # ============================================================================ WebSockets
 
+def _token_de_chat(client):
+    """Token de un usuario creado directo en la base (sin peticiones http: no gasta cupo del rate limit)."""
+    if not hasattr(client, "_token_chat"):
+        from app.dao.UserDAO import UserDAO
+        from utils.authorization import create_access_token
+        user_id = UserDAO().crear_usuario_db("wsuser", "ws@example.com", "x")
+        client._token_chat = create_access_token({"sub": str(user_id)})
+    return client._token_chat
+
+
 def _conectar_ws(client, headers=None):
     """Abre y cierra una conexión a /ws/chat. Devuelve True si se aceptó, False si el handshake se rechazó."""
     from starlette.websockets import WebSocketDisconnect
     try:
-        with client.websocket_connect("/ws/chat", headers=headers or {}):
+        with client.websocket_connect(f"/ws/chat?token={_token_de_chat(client)}", headers=headers or {}):
             return True
     except WebSocketDisconnect:
         return False
