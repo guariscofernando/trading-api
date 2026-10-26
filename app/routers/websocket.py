@@ -2,7 +2,11 @@
 import asyncio
 import json
 import random
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, logger
+import anyio
+from app.config import config
+from app.services.ratelimit import limitador
+import logging
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.coingecko import obtener_precios_multiples
 from typing import List
 from typing import Dict
@@ -12,6 +16,8 @@ from app.dao.TradeDAO import TradeDAO
 from app.dao.WatchlistDAO import WatchlistDAO
 from app.services.coingecko import obtener_precios_multiples
 from app.routers.analisis import _calcular_pnl_por_activo, COIN_MAP
+
+logger = logging.getLogger("trading-api")
 
 UMBRAL_PNL_SIGNIFICATIVO = 10  # porcentaje, para positivo o negativo
 
@@ -64,7 +70,70 @@ class NotificationManager:
         for ws in conexiones_muertas:
             self.disconnect(usuario_id, ws)
 
+class ChatManager:
+    """Conexiones del chat. Aparte de ConnectionManager para que los mensajes del chat no lleguen
+    a quien solo está viendo precios (antes compartían lista)."""
+    TIMEOUT_ENVIO = 5   # segundos: un cliente lento no debe frenar al resto
+
+    def __init__(self):
+        self.conexiones: Dict[WebSocket, dict] = {}
+
+    def conectadas_de(self, usuario_id: int) -> int:
+        return sum(1 for u in self.conexiones.values() if u["id"] == usuario_id)
+
+    async def connect(self, websocket: WebSocket, usuario: dict):
+        await websocket.accept()
+        self.conexiones[websocket] = {"id": usuario["id"], "username": usuario["username"]}
+
+    def disconnect(self, websocket: WebSocket):
+        self.conexiones.pop(websocket, None)
+
+    async def _enviar(self, ws: WebSocket, mensaje: dict) -> bool:
+        try:
+            with anyio.fail_after(self.TIMEOUT_ENVIO):
+                await ws.send_json(mensaje)
+            return True
+        except Exception:
+            return False
+
+    async def broadcast(self, mensaje: dict):
+        conexiones = list(self.conexiones)
+        resultados = await asyncio.gather(*(self._enviar(ws, mensaje) for ws in conexiones))
+        for ws, ok in zip(conexiones, resultados):
+            if not ok:
+                self.disconnect(ws)
+
+
+def _usuario_desde_token(token: str):
+    """(usuario, motivo_de_rechazo). Mismas comprobaciones que get_current_user para HTTP."""
+    payload = decode_access_token(token)
+    if payload is None:
+        return None, "Token inválido o expirado"
+    user_id = payload.get("sub")
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return None, "Token inválido"
+    usuario = user_dao.obtener_usuario_por_id(user_id)
+    if usuario is None:
+        return None, "Usuario no encontrado"
+    return usuario, None
+
+
+async def _golpear_limite(clave: str, limite: int, ventana: int):
+    """Registra un evento en el limitador sin bloquear el bucle de eventos si el almacén es Redis."""
+    try:
+        if limitador.bloqueante:
+            return await anyio.to_thread.run_sync(limitador.golpear, clave, limite, ventana)
+        return limitador.golpear(clave, limite, ventana)
+    except Exception:
+        # Un fallo del limitador no tumba el chat (misma política que el middleware): se deja pasar.
+        logger.exception("Chat: error al evaluar el límite; se deja pasar")
+        return None
+
+
 notification_manager = NotificationManager()
+chat_manager = ChatManager()
 manager = ConnectionManager()
 router = APIRouter(tags=["WebSocket"])
 
@@ -95,51 +164,50 @@ async def websocket_precios(websocket: WebSocket):
         manager.disconnect(websocket)
 
 @router.websocket("/ws/chat")
-async def websocket_chat(websocket: WebSocket):
-    """WebSocket de chat simple"""
-    await manager.connect(websocket)
-    
-    try:
-        while True:
-            # Recibir mensaje del cliente
-            data = await websocket.receive_text()
-            
-            # Broadcast a todos los clientes
-            await manager.broadcast(f"Nuevo mensaje: {data}")
-            
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
+async def websocket_chat(websocket: WebSocket, token: str = ""):
+    """
+    Chat para usuarios autenticados: /ws/chat?token=<jwt> (mismo token que /ws/notificaciones).
 
-@router.websocket("/ws/precios-reales")
-async def websocket_precios_reales(websocket: WebSocket):
-    """WebSocket con precios reales de CoinGecko"""
-    await manager.connect(websocket)
-    
+    - Sin token válido el handshake se rechaza antes de aceptarlo (cierre 1008).
+    - Límite por USUARIO (no por conexión: abrir más pestañas no da más cupo): CHAT_MAX_MESSAGES
+      mensajes cada CHAT_WINDOW_SECONDS. Los que sobran se descartan con un aviso {"tipo": "error"}.
+    - Un mensaje de más de CHAT_MAX_LENGTH caracteres cierra la conexión (1009).
+    - Como máximo CHAT_MAX_CONNECTIONS_PER_USER conexiones simultáneas por usuario.
+    - Cada mensaje se emite como JSON con el autor tomado del token, no de lo que diga el cliente.
+    """
+    usuario, motivo = _usuario_desde_token(token)
+    if usuario is None:
+        await websocket.close(code=1008, reason=motivo)
+        return
+    if chat_manager.conectadas_de(usuario["id"]) >= config.CHAT_MAX_CONNECTIONS_PER_USER:
+        await websocket.close(code=1008, reason="Demasiadas conexiones abiertas")
+        return
+
+    await chat_manager.connect(websocket, usuario)
     try:
+        await websocket.send_json({"tipo": "conexion", "mensaje": f"Conectado al chat como {usuario['username']}"})
         while True:
-            # Obtener precios reales
-            precios = await obtener_precios_multiples(
-                ["bitcoin", "ethereum", "solana"]
-            )
-            
-            if precios:
-                datos = {}
-                for coin_id, data in precios.items():
-                    datos[coin_id] = {
-                        "precio": data.get("usd", 0),
-                        "cambio_24h": round(data.get("usd_24h_change", 0), 2)
-                    }
-                
+            texto = (await websocket.receive_text()).strip()
+            if len(texto) > config.CHAT_MAX_LENGTH:
+                await websocket.close(code=1009, reason="Mensaje demasiado largo")
+                break
+            if not texto:
+                continue
+            resultado = await _golpear_limite(
+                f"chat:{usuario['id']}", config.CHAT_MAX_MESSAGES, config.CHAT_WINDOW_SECONDS)
+            if resultado is not None and not resultado.permitido:
                 await websocket.send_json({
-                    "tipo": "precios_reales",
-                    "datos": datos
+                    "tipo": "error",
+                    "mensaje": f"Estás enviando mensajes demasiado rápido. Espera {resultado.reinicia_en} segundos.",
+                    "reintentar_en": resultado.reinicia_en,
                 })
-            
-            # Esperar 30 segundos (para no hacer rate limit)
-            await asyncio.sleep(30)
-            
+                continue
+            await chat_manager.broadcast({"tipo": "mensaje", "usuario": usuario["username"], "mensaje": texto})
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        pass
+    finally:
+        chat_manager.disconnect(websocket)
+
 
 @router.websocket("/ws/notificaciones")
 async def websocket_notificaciones(websocket: WebSocket, token: str):

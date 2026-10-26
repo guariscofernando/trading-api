@@ -46,7 +46,8 @@ def login(datos: UsuarioLogin, request: Request):
         "usuario": {
             "id": usuario["id"],
             "username": usuario["username"],
-            "email": usuario["email"]
+            "email": usuario["email"],
+            "rol": usuario["rol"]
         }
     }
 

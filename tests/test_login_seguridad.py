@@ -214,4 +214,5 @@ def test_el_login_correcto_sigue_devolviendo_el_mismo_formato(client, ana):
     assert r.status_code == 200
     cuerpo = r.json()
     assert cuerpo["token_type"] == "bearer" and cuerpo["access_token"]
-    assert set(cuerpo["usuario"]) == {"id", "username", "email"}
+    assert set(cuerpo["usuario"]) == {"id", "username", "email", "rol"}
+    assert cuerpo["usuario"]["rol"] == "usuario"

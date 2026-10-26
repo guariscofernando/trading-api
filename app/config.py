@@ -57,6 +57,12 @@ class Config:
     REGISTER_RATE_LIMIT = _entero("REGISTER_RATE_LIMIT", 10)     # POST /usuarios/registro por IP y hora
     LOGIN_MAX_FAILURES = _entero("LOGIN_MAX_FAILURES", 5)        # fallos por (IP, usuario) antes de bloquear
     LOGIN_LOCKOUT_SECONDS = _entero("LOGIN_LOCKOUT_SECONDS", 900)  # ventana de fallos / duración del bloqueo
+    # Chat (/ws/chat): mensajes permitidos por usuario en cada ventana, tamaño máximo y conexiones simultáneas.
+    CHAT_MAX_MESSAGES = _entero("CHAT_MAX_MESSAGES", 10)
+    CHAT_WINDOW_SECONDS = _entero("CHAT_WINDOW_SECONDS", 10)
+    CHAT_MAX_LENGTH = _entero("CHAT_MAX_LENGTH", 500)
+    CHAT_MAX_CONNECTIONS_PER_USER = _entero("CHAT_MAX_CONNECTIONS_PER_USER", 3)
+
     # Proxies de confianza delante de la app (0 = ninguno: se ignora X-Forwarded-For).
     TRUSTED_PROXY_COUNT = _entero("TRUSTED_PROXY_COUNT", 0)
     # Contadores compartidos entre instancias (opcional). Vacío = memoria del proceso.
@@ -114,7 +120,9 @@ class Config:
             raise RuntimeError("DB_MAX_OVERFLOW no puede ser negativo")
 
         for nombre in ("RATE_LIMIT_REQUESTS", "RATE_LIMIT_WINDOW", "LOGIN_RATE_LIMIT",
-                       "REGISTER_RATE_LIMIT", "LOGIN_MAX_FAILURES", "LOGIN_LOCKOUT_SECONDS"):
+                       "REGISTER_RATE_LIMIT", "LOGIN_MAX_FAILURES", "LOGIN_LOCKOUT_SECONDS",
+                       "CHAT_MAX_MESSAGES", "CHAT_WINDOW_SECONDS", "CHAT_MAX_LENGTH",
+                       "CHAT_MAX_CONNECTIONS_PER_USER"):
             if getattr(self, nombre) < 1:
                 raise RuntimeError(f"{nombre} debe ser mayor o igual que 1")
         if not 0 <= self.TRUSTED_PROXY_COUNT <= 10:
