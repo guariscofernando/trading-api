@@ -151,3 +151,32 @@ class PaperTrade(Base):
     pnl_realizado: Mapped[Optional[Decimal]] = mapped_column(DINERO)         # solo en ventas
     client_order_id: Mapped[Optional[str]] = mapped_column(String(64))
     ejecutado_en: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+
+
+class PaperOrder(Base):
+    """Orden pendiente (LIMIT o STOP) que el motor ejecuta cuando el precio de mercado la dispara."""
+    __tablename__ = "paper_orders"
+    __table_args__ = (
+        UniqueConstraint("usuario_id", "client_order_id", name="uq_paper_orders_cliente"),
+        CheckConstraint("side IN ('BUY', 'SELL')", name="paper_orders_side_check"),
+        CheckConstraint("tipo IN ('LIMIT', 'STOP')", name="paper_orders_tipo_check"),
+        CheckConstraint("estado IN ('ABIERTA', 'EJECUTADA', 'CANCELADA', 'RECHAZADA')", name="paper_orders_estado_check"),
+        CheckConstraint("cantidad > 0", name="paper_orders_cantidad_check"),
+        CheckConstraint("precio > 0", name="paper_orders_precio_check"),
+        Index("idx_paper_orders_abiertas", "estado", "coin_id"),
+        Index("idx_paper_orders_usuario", "usuario_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    coin_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    side: Mapped[str] = mapped_column(String(4), nullable=False)
+    tipo: Mapped[str] = mapped_column(String(5), nullable=False)
+    cantidad: Mapped[Decimal] = mapped_column(DINERO, nullable=False)
+    precio: Mapped[Decimal] = mapped_column(DINERO, nullable=False)          # precio límite o precio de disparo del stop
+    estado: Mapped[str] = mapped_column(String(10), nullable=False, server_default="ABIERTA")
+    motivo: Mapped[Optional[str]] = mapped_column(String(200))               # por qué se rechazó
+    trade_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("paper_trades.id", ondelete="SET NULL"))
+    client_order_id: Mapped[Optional[str]] = mapped_column(String(64))
+    creada_en: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+    cerrada_en: Mapped[Optional[datetime]] = mapped_column(DateTime)

@@ -109,6 +109,7 @@ def test_valores_por_defecto_de_paper_trading():
     ("PAPER_INITIAL_BALANCE", 0), ("PAPER_INITIAL_BALANCE", 10**11),
     ("PAPER_COMMISSION_PCT", -1), ("PAPER_COMMISSION_PCT", 10), ("PAPER_SLIPPAGE_PCT", 10),
     ("PAPER_ORDERS_PER_MINUTE", 0), ("PAPER_RESETS_PER_HOUR", 0),
+    ("PAPER_MATCH_INTERVAL_SECONDS", 0), ("PAPER_MAX_OPEN_ORDERS", 0),
 ])
 def test_config_de_paper_trading_invalida_impide_arrancar(campo, valor):
     from decimal import Decimal as D

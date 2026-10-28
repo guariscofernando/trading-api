@@ -56,7 +56,7 @@ if not _db_real.endswith("_test"):
     )
 
 RAIZ = Path(__file__).resolve().parents[1]
-TABLAS = ("paper_trades", "paper_positions", "paper_wallet", "orders", "watchlist", "trades", "usuarios")
+TABLAS = ("paper_orders", "paper_trades", "paper_positions", "paper_wallet", "orders", "watchlist", "trades", "usuarios")
 
 
 def alembic_config() -> AlembicConfig:

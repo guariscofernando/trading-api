@@ -76,7 +76,7 @@ INSERT INTO orders (usuario_id,binance_order_id,symbol,side,order_type,status,qu
 
 def _borrar_todo():
     with engine.begin() as c:
-        c.execute(text("DROP TABLE IF EXISTS paper_trades, paper_positions, paper_wallet, orders, watchlist, trades, usuarios, alembic_version CASCADE"))
+        c.execute(text("DROP TABLE IF EXISTS paper_orders, paper_trades, paper_positions, paper_wallet, orders, watchlist, trades, usuarios, alembic_version CASCADE"))
 
 
 def _huella_de_datos():
@@ -116,7 +116,7 @@ def test_el_esquema_migrado_coincide_con_los_modelos():
 
 
 def test_la_base_queda_en_la_ultima_version():
-    assert _version() == "0004"
+    assert _version() == "0005"
     assert _largo_coin_id() == 64
 
 
@@ -132,7 +132,7 @@ def test_base_existente_con_datos_se_migra_sin_perder_nada(restaurar_esquema):
     command.upgrade(alembic_config(), "head")
 
     assert _huella_de_datos() == antes, "la migración modificó datos existentes"
-    assert _version() == "0004"
+    assert _version() == "0005"
     assert _largo_coin_id() == 64
     with engine.connect() as c:
         assert c.execute(text("SELECT coin_id FROM watchlist")).scalar_one() == "bitcoin"
@@ -146,7 +146,7 @@ def test_base_existente_con_datos_se_migra_sin_perder_nada(restaurar_esquema):
 def test_ejecutar_dos_veces_no_hace_nada(restaurar_esquema):
     command.upgrade(alembic_config(), "head")
     command.upgrade(alembic_config(), "head")
-    assert _version() == "0004"
+    assert _version() == "0005"
 
 
 def test_base_vacia_se_crea_completa(restaurar_esquema):

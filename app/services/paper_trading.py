@@ -42,6 +42,14 @@ class OrdenDuplicada(PaperError):
     """Mismo client_order_id usado con una orden distinta (409)."""
 
 
+class LimiteDeOrdenes(PaperError):
+    """Demasiadas órdenes pendientes abiertas (409)."""
+
+
+class OrdenNoAbierta(PaperError):
+    """La orden ya se ejecutó, se rechazó o se canceló (409)."""
+
+
 class PrecioNoDisponible(Exception):
     """No se pudo obtener un precio fiable: la orden se rechaza en lugar de ejecutarse a ciegas (503)."""
 
@@ -74,6 +82,39 @@ def precio_ejecutado(precio_ref: Decimal, side: str, slippage_pct: Decimal) -> D
     if precio <= 0:
         raise PaperError("Precio demasiado bajo para operar")
     return precio
+
+
+def se_dispara(tipo: str, side: str, precio_mercado: Decimal, precio_orden: Decimal) -> bool:
+    """
+    ¿El precio de mercado activa la orden pendiente?
+      LIMIT  comprar a ese precio o MENOS / vender a ese precio o MÁS.
+      STOP   comprar cuando el precio SUBE hasta ese nivel (entrada por ruptura) /
+             vender cuando BAJA hasta ese nivel (stop-loss).
+    """
+    if tipo == "LIMIT":
+        return precio_mercado <= precio_orden if side == "BUY" else precio_mercado >= precio_orden
+    if tipo == "STOP":
+        return precio_mercado >= precio_orden if side == "BUY" else precio_mercado <= precio_orden
+    raise PaperError(f"Tipo de orden desconocido: {tipo}")
+
+
+def parametros_de_relleno(tipo: str, precio_mercado: Decimal, precio_orden: Decimal, slippage_pct: Decimal):
+    """
+    (precio de referencia, slippage) con que se ejecuta una orden disparada.
+      LIMIT  se rellena al precio límite, sin mejora de precio y sin slippage: nunca es mejor ni peor que lo pedido.
+      STOP   se convierte en orden de mercado: precio de mercado del momento y con slippage en contra.
+    """
+    if tipo == "LIMIT":
+        return precio_orden, Decimal(0)
+    return precio_mercado, slippage_pct
+
+
+def validar_stop_al_crear(side: str, precio_mercado: Decimal, precio_stop: Decimal) -> None:
+    """Un stop que ya está disparado al crearlo se ejecutaría al instante: se rechaza, como hacen los brókers."""
+    if se_dispara("STOP", side, precio_mercado, precio_stop):
+        lado = "por encima" if side == "BUY" else "por debajo"
+        raise PaperError(
+            f"Un STOP de {'compra' if side == 'BUY' else 'venta'} debe fijarse {lado} del precio actual ({precio_mercado})")
 
 
 def calcular_compra(saldo: Decimal, cantidad: Decimal, precio_ref: Decimal, comision_pct: Decimal,
