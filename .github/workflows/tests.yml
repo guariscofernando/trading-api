@@ -1,0 +1,51 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: trading_user
+          POSTGRES_PASSWORD: trading_pass
+          POSTGRES_DB: trading_test      # los tests exigen que el nombre termine en _test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U trading_user -d trading_test"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      ENVIRONMENT: development
+      APP_NAME: Trading API
+      APP_VERSION: ci
+      APP_DESCRIPTION: ci
+      SECRET_KEY: clave-solo-para-ci-0123456789abcdef0123456789
+      ALGORITHM: HS256
+      CORS_ORIGINS: http://localhost:3000
+      TEST_DATABASE_URL: postgresql://trading_user:trading_pass@localhost:5432/trading_test
+      DATABASE_URL: postgresql://trading_user:trading_pass@localhost:5432/trading_test
+      TEST_REDIS_URL: redis://localhost:6379/0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"        # la misma del Dockerfile
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m pytest -q -p no:warnings
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t trading-api .
