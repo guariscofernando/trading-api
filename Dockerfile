@@ -32,9 +32,11 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://localhost:%s/health' % os.environ.get('PORT', '8000'))"
 
 # Comando para ejecutar la aplicación
+# El puerto lo da la plataforma en $PORT (Render, Railway...); en local es 8000.
+# --workers 1: el chat, las notificaciones y las alertas viven en memoria de cada proceso (ver README).
 # Aplica las migraciones y luego arranca. Si la migración falla, el contenedor termina con error
 # (el despliegue se marca como fallido) en lugar de servir tráfico con un esquema a medias.
 # Con varias instancias a la vez, Alembic las serializa con un bloqueo de PostgreSQL.
@@ -42,4 +44,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # FORWARDED_ALLOW_IPS='*' (algo que recomiendan algunas guías de PaaS), uvicorn tomaría la entrada MÁS A LA IZQUIERDA
 # de la cabecera, que escribe el propio cliente, y el rate limit y el bloqueo del login se evadirían cambiando una
 # cabecera. La IP real la calcula la aplicación (TRUSTED_PROXY_COUNT, ver README).
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --no-proxy-headers"]
+CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1 --no-proxy-headers"]

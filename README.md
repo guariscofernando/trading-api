@@ -594,6 +594,11 @@ La API se puede desplegar en plataformas como Render o Railway usando el `Docker
 - **URL de producción Render:** `https://trading-api-o9u2.onrender.com/`
 - **URL de producción Railway:** `https://trading-api-production-4205.up.railway.app/`
 - **Migraciones:** el contenedor ejecuta `alembic upgrade head` antes de iniciar `uvicorn`, así que cada despliegue deja el esquema al día. Si la migración falla, el despliegue falla en vez de servir tráfico con un esquema incorrecto. Antes del primer despliegue con esta versión conviene hacer un backup (en Neon, una *branch* de la base).
+- **Puerto y workers:** el contenedor escucha en `$PORT` (lo define la plataforma; en local, 8000) y arranca **un solo worker**: el chat, las notificaciones y las alertas viven en memoria de cada proceso.
+  Para escalar a varias instancias hace falta antes un respaldo compartido (Redis) para esas piezas; `REDIS_URL` hoy solo comparte el rate limit y el bloqueo del login.
+- **No hay `Procfile`:** la plataforma debe usar el `Dockerfile`. Un `Procfile` arrancaría uvicorn sin migrar y con las opciones por defecto.
+- **Primer administrador:** tras el primer despliegue, regístrate y promuévete desde una shell de la instancia: `python scripts/gestionar_roles.py promover <usuario>` (ver [Roles](#roles-administradores)).
+- **Integración continua:** `.github/workflows/tests.yml` corre toda la suite (PostgreSQL y Redis reales, Python 3.12) y construye la imagen en cada PR y en cada push a `main`. Conviene activar en GitHub *Settings → Branches* la regla de exigir que pase antes de fusionar.
 - **Variables de entorno:** el `.env` no se sube al repositorio, así que hay que cargar las variables desde el panel de la plataforma (las mismas de la sección [Configuración](#configuración)). En producción:
   - `ENVIRONMENT=production` (deshabilita `/docs`, `/redoc` y `/openapi.json`)
   - `DATABASE_URL` con la connection string de tu base en [Neon](https://neon.tech) (PostgreSQL administrado). Debe incluir `?sslmode=require`. Si falta esta variable o apunta a `localhost` (la base local de Docker), la app no arranca

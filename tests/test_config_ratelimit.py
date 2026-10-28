@@ -77,7 +77,7 @@ def test_en_produccion_bien_configurada_no_avisa():
 def _comandos_uvicorn():
     from pathlib import Path
     raiz = Path(__file__).resolve().parents[1]
-    for archivo in ("Dockerfile", "app/Procfile"):
+    for archivo in ("Dockerfile",):
         for linea in (raiz / archivo).read_text(encoding="utf-8").splitlines():
             if "uvicorn app.main:app" in linea and not linea.lstrip().startswith("#"):
                 yield archivo, linea
@@ -90,7 +90,7 @@ def test_uvicorn_se_arranca_sin_reescribir_la_ip_del_cliente():
     --no-proxy-headers la única IP válida es la que calcula la aplicación (TRUSTED_PROXY_COUNT).
     """
     comandos = list(_comandos_uvicorn())
-    assert {a for a, _ in comandos} == {"Dockerfile", "app/Procfile"}, "no se encontró algún comando de arranque"
+    assert {a for a, _ in comandos} == {"Dockerfile"}, "no se encontró el comando de arranque (o reapareció un Procfile)"
     for archivo, linea in comandos:
         assert "--no-proxy-headers" in linea, f"{archivo} no usa --no-proxy-headers: {linea}"
 
