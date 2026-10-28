@@ -172,6 +172,7 @@ alembic upgrade head --sql                        # muestra el SQL sin ejecutarl
   La `0002` ensancha `watchlist.coin_id` a 64 caracteres (los IDs de CoinGecko no cabían en 10).
   La `0003` añade `usuarios.rol` (`usuario` | `admin`); los usuarios existentes quedan como `usuario`.
   La `0004` crea las tablas del paper trading (`paper_wallet`, `paper_positions`, `paper_trades`); no toca datos existentes.
+  La `0005` añade `paper_orders` (órdenes pendientes LIMIT/STOP).
 - Con varias instancias arrancando a la vez, Alembic las serializa con un bloqueo de PostgreSQL: una migra y las demás esperan.
 - `alembic downgrade base` **borra todas las tablas y sus datos**; solo para desarrollo.
 - **Dimensionar el pool:** el máximo de conexiones hacia la base es `(DB_POOL_SIZE + DB_MAX_OVERFLOW) × número de procesos`.
@@ -493,7 +494,10 @@ Operar con dinero **simulado** (USDT) a precios reales de CoinGecko. Todas las r
 | GET | `/paper/billetera` | 🔒 | Saldo, posiciones valoradas, equity y P&L (realizado y no realizado) |
 | GET | `/paper/posiciones` | 🔒 | Posiciones abiertas con su valor actual |
 | GET | `/paper/historial` | 🔒 | Órdenes ejecutadas, la más reciente primero. Query: `skip`, `limit` (máx. 100) |
-| POST | `/paper/reiniciar` | 🔒 | Borra posiciones e historial y devuelve el saldo inicial |
+| POST | `/paper/ordenes` | 🔒 | Orden pendiente `{"coin_id", "side", "tipo": "LIMIT"\|"STOP", "cantidad", "precio", "client_order_id"?}` |
+| GET | `/paper/ordenes` | 🔒 | Órdenes pendientes y su resultado. Query: `estado` (`ABIERTA`, `EJECUTADA`, `CANCELADA`, `RECHAZADA`), `skip`, `limit` |
+| DELETE | `/paper/ordenes/{id}` | 🔒 | Cancela una orden abierta propia |
+| POST | `/paper/reiniciar` | 🔒 | Borra posiciones, órdenes pendientes e historial y devuelve el saldo inicial |
 
 Reglas:
 
@@ -506,6 +510,12 @@ Reglas:
 - **Idempotencia:** con `client_order_id`, reintentar la misma orden devuelve la original (200, `"repetida": true`) en vez de ejecutarla otra vez; usarlo con una orden distinta da 409.
 - Códigos: 201 ejecutada, 404 moneda desconocida, 409 saldo/posición insuficiente, 422 datos inválidos, 429 demasiadas órdenes, 503 sin precio.
 - `valoracion_completa: false` en la billetera significa que faltó el precio de alguna moneda y el equity **no** incluye esa posición.
+- **Órdenes pendientes (`/paper/ordenes`):** un motor en segundo plano revisa los precios cada `PAPER_MATCH_INTERVAL_SECONDS` (15 s) y ejecuta las órdenes que el precio dispara:
+  - `LIMIT`: compra a `precio` o menos, venta a `precio` o más. Se rellena **al precio límite** (sin mejora de precio y sin slippage).
+  - `STOP`: compra si el precio **sube** hasta `precio` (entrada por ruptura), venta si **baja** hasta `precio` (stop-loss). Al dispararse se ejecuta como orden de mercado, con slippage. Un STOP que ya está disparado al crearlo se rechaza (422).
+  - **No reservan saldo ni posición:** se comprueban al ejecutarse; si no alcanza, la orden queda `RECHAZADA` con su `motivo` y no se reintenta.
+  - Máximo `PAPER_MAX_OPEN_ORDERS` (20) abiertas por usuario. Las ejecuta el motor, así que pueden tardar hasta un intervalo más el retraso de la caché de CoinGecko (60 s); un pico de precio más corto que eso no las dispara.
+  - El motor es **seguro con varios procesos**: cada orden se bloquea con `SKIP LOCKED` y se vuelve a comprobar su estado dentro del bloqueo, así que nunca se ejecuta dos veces (ni se ejecuta y cancela a la vez). `PAPER_MATCHING_ENABLED=false` lo desactiva en un proceso.
 - Límites por usuario: `PAPER_ORDERS_PER_MINUTE` y `PAPER_RESETS_PER_HOUR`. Saldo inicial: `PAPER_INITIAL_BALANCE`.
 
 ### Sistema — `/system`

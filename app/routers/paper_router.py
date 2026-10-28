@@ -5,11 +5,13 @@ from functools import partial
 from typing import Optional
 
 import anyio
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 
 from app.config import config
 from app.dao.PaperDAO import PaperDAO
-from app.dto.PaperDTO import OrdenPaper
+from app.dto.PaperDTO import OrdenPaper, OrdenPendientePaper
 from app.services import paper_trading as pt
 from app.services.ratelimit import golpear_sin_bloquear
 from utils.authorization import get_current_user
@@ -72,7 +74,7 @@ async def crear_orden(orden: OrdenPaper, response: Response, current_user: dict 
         raise HTTPException(status_code=404, detail=str(e))
     except pt.PrecioNoDisponible as e:
         raise HTTPException(status_code=503, detail=f"{e}. Reintenta en unos segundos.")
-    except (pt.SaldoInsuficiente, pt.PosicionInsuficiente, pt.OrdenDuplicada) as e:
+    except (pt.SaldoInsuficiente, pt.PosicionInsuficiente, pt.OrdenDuplicada, pt.LimiteDeOrdenes, pt.OrdenNoAbierta) as e:
         raise HTTPException(status_code=409, detail=str(e))
     except pt.PaperError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -82,6 +84,70 @@ async def crear_orden(orden: OrdenPaper, response: Response, current_user: dict 
     else:
         response.status_code = 201
     return {**_trade_json(trade), "saldo_usdt": _n(trade["saldo"]), "repetida": trade["repetida"]}
+
+
+def _pendiente_json(o: dict) -> dict:
+    return {
+        "id": o["id"], "coin_id": o["coin_id"], "side": o["side"], "tipo": o["tipo"], "cantidad": _n(o["cantidad"]),
+        "precio": _n(o["precio"]), "estado": o["estado"], "motivo": o["motivo"], "trade_id": o["trade_id"],
+        "client_order_id": o["client_order_id"],
+        "creada_en": o["creada_en"].strftime("%Y-%m-%d %H:%M:%S") if o["creada_en"] else None,
+        "cerrada_en": o["cerrada_en"].strftime("%Y-%m-%d %H:%M:%S") if o["cerrada_en"] else None,
+    }
+
+
+@router.post("/ordenes")
+async def crear_orden_pendiente(orden: OrdenPendientePaper, response: Response,
+                                current_user: dict = Depends(get_current_user)):
+    """
+    Orden pendiente LIMIT o STOP. El motor la ejecuta cuando el precio la dispara (se revisa cada
+    PAPER_MATCH_INTERVAL_SECONDS):
+      LIMIT  compra a `precio` o menos / venta a `precio` o más; se rellena al precio límite.
+      STOP   compra si el precio SUBE hasta `precio` / venta si BAJA hasta `precio` (stop-loss);
+             se ejecuta como orden de mercado, con slippage. Un STOP ya disparado se rechaza (422).
+    No reserva saldo ni posición: se comprueba al ejecutarse y, si no alcanza, la orden queda RECHAZADA.
+    """
+    usuario_id = current_user["id"]
+    await _limitar(f"paper:orden:{usuario_id}", config.PAPER_ORDERS_PER_MINUTE, 60)
+    try:
+        pt.validar_orden(orden.cantidad, orden.precio)
+        mercado = await pt.precio_de_ejecucion(orden.coin_id)       # también confirma que la moneda existe
+        if orden.tipo == "STOP":
+            pt.validar_stop_al_crear(orden.side, mercado, orden.precio)
+        creada = await _en_hilo(
+            dao.crear_pendiente, usuario_id, orden.coin_id, orden.side, orden.tipo, orden.cantidad, orden.precio,
+            config.PAPER_INITIAL_BALANCE, config.PAPER_MAX_OPEN_ORDERS, orden.client_order_id)
+    except pt.MonedaDesconocida as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except pt.PrecioNoDisponible as e:
+        raise HTTPException(status_code=503, detail=f"{e}. Reintenta en unos segundos.")
+    except (pt.OrdenDuplicada, pt.LimiteDeOrdenes) as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except pt.PaperError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    response.status_code = 200 if creada["repetida"] else 201
+    return {**_pendiente_json(creada), "repetida": creada["repetida"]}
+
+
+@router.get("/ordenes")
+async def listar_ordenes(estado: Optional[Literal["ABIERTA", "EJECUTADA", "CANCELADA", "RECHAZADA"]] = None,
+                         skip: int = Query(0, ge=0, le=1_000_000), limit: int = Query(50, ge=1, le=100),
+                         current_user: dict = Depends(get_current_user)):
+    """Órdenes pendientes y su resultado, de la más reciente a la más antigua. Filtro opcional por `estado`."""
+    filas = await _en_hilo(dao.listar_pendientes, current_user["id"], estado, skip, limit)
+    return [_pendiente_json(o) for o in filas]
+
+
+@router.delete("/ordenes/{orden_id}")
+async def cancelar_orden(orden_id: int = Path(..., ge=1, le=2_147_483_647), current_user: dict = Depends(get_current_user)):
+    """Cancela una orden ABIERTA propia (404 si no existe o es de otro usuario; 409 si ya no está abierta)."""
+    try:
+        orden = await _en_hilo(dao.cancelar_pendiente, current_user["id"], orden_id)
+    except pt.OrdenNoAbierta as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    if orden is None:
+        raise HTTPException(status_code=404, detail="Orden no encontrada")
+    return _pendiente_json(orden)
 
 
 async def _valoracion(usuario_id: int) -> dict:
@@ -128,7 +194,7 @@ async def historial(skip: int = Query(0, ge=0, le=1_000_000), limit: int = Query
 
 @router.post("/reiniciar")
 async def reiniciar(current_user: dict = Depends(get_current_user)):
-    """Borra posiciones e historial y devuelve el saldo al inicial. Limitado por hora."""
+    """Borra posiciones, órdenes pendientes e historial y devuelve el saldo al inicial. Limitado por hora."""
     uid = current_user["id"]
     await _limitar(f"paper:reinicio:{uid}", config.PAPER_RESETS_PER_HOUR, 3600)
     cuenta = await _en_hilo(dao.reiniciar, uid, config.PAPER_INITIAL_BALANCE)
