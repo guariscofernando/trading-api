@@ -4,7 +4,7 @@ import json
 import random
 import anyio
 from app.config import config
-from app.services.ratelimit import limitador
+from app.services.ratelimit import golpear_sin_bloquear
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.coingecko import obtener_precios_multiples
@@ -120,18 +120,6 @@ def _usuario_desde_token(token: str):
     return usuario, None
 
 
-async def _golpear_limite(clave: str, limite: int, ventana: int):
-    """Registra un evento en el limitador sin bloquear el bucle de eventos si el almacén es Redis."""
-    try:
-        if limitador.bloqueante:
-            return await anyio.to_thread.run_sync(limitador.golpear, clave, limite, ventana)
-        return limitador.golpear(clave, limite, ventana)
-    except Exception:
-        # Un fallo del limitador no tumba el chat (misma política que el middleware): se deja pasar.
-        logger.exception("Chat: error al evaluar el límite; se deja pasar")
-        return None
-
-
 notification_manager = NotificationManager()
 chat_manager = ChatManager()
 manager = ConnectionManager()
@@ -193,7 +181,7 @@ async def websocket_chat(websocket: WebSocket, token: str = ""):
                 break
             if not texto:
                 continue
-            resultado = await _golpear_limite(
+            resultado = await golpear_sin_bloquear(
                 f"chat:{usuario['id']}", config.CHAT_MAX_MESSAGES, config.CHAT_WINDOW_SECONDS)
             if resultado is not None and not resultado.permitido:
                 await websocket.send_json({

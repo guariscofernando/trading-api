@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
-from app.routers import trades, users, precios, analisis, websocket, dashboard, binance_router, orders_router, system, riesgo_router, backtest_router
+from app.routers import trades, users, precios, analisis, websocket, dashboard, binance_router, orders_router, system, riesgo_router, backtest_router, paper_router
 from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware, instalar_filtro_de_tokens
 from app.routers.websocket import verificar_alertas
@@ -55,6 +55,7 @@ app.include_router(orders_router.router)
 app.include_router(system.router)
 app.include_router(riesgo_router.router)
 app.include_router(backtest_router.router)
+app.include_router(paper_router.router)
 
 def _json_seguro(valor):
     """
@@ -78,8 +79,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     errores = []
     for error in exc.errors():
         error_limpio = dict(error)
-        if "ctx" in error_limpio and "error" in error_limpio["ctx"]:
-            error_limpio["ctx"] = {"error": str(error_limpio["ctx"]["error"])}
+        if "ctx" in error_limpio:
+            # Los límites del ctx pueden ser Decimal (p. ej. gt=Decimal("0")), que json no serializa:
+            # sin esto, enviar cantidad=0 a /paper/orden provocaba un 500 en vez de un 422.
+            error_limpio["ctx"] = {
+                k: (str(v) if k == "error" else _json_seguro(v)) for k, v in error_limpio["ctx"].items()}
         if "input" in error_limpio:
             error_limpio["input"] = _json_seguro(error_limpio["input"])
         errores.append(error_limpio)

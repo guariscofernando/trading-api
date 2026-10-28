@@ -171,6 +171,7 @@ alembic upgrade head --sql                        # muestra el SQL sin ejecutarl
 - La migración `0001` adopta el esquema que ya existía: en una base con las tablas creadas por la versión anterior **no modifica nada**; en una base vacía crea todo.
   La `0002` ensancha `watchlist.coin_id` a 64 caracteres (los IDs de CoinGecko no cabían en 10).
   La `0003` añade `usuarios.rol` (`usuario` | `admin`); los usuarios existentes quedan como `usuario`.
+  La `0004` crea las tablas del paper trading (`paper_wallet`, `paper_positions`, `paper_trades`); no toca datos existentes.
 - Con varias instancias arrancando a la vez, Alembic las serializa con un bloqueo de PostgreSQL: una migra y las demás esperan.
 - `alembic downgrade base` **borra todas las tablas y sus datos**; solo para desarrollo.
 - **Dimensionar el pool:** el máximo de conexiones hacia la base es `(DB_POOL_SIZE + DB_MAX_OVERFLOW) × número de procesos`.
@@ -481,6 +482,31 @@ curl -X POST http://localhost:8000/backtest/ \
 mejor/peor operación y tiempo en el mercado. `advertencias` avisa, por ejemplo, cuando hay menos de 30 operaciones y las estadísticas no son fiables.
 
 > ⚠️ Un backtest describe el pasado y, si ajustas los parámetros mirando los mismos datos, está sobreajustado. No es una promesa de resultados futuros ni asesoría financiera.
+
+### Paper trading — `/paper`
+
+Operar con dinero **simulado** (USDT) a precios reales de CoinGecko. Todas las rutas son 🔒 y cada usuario solo ve y mueve lo suyo.
+
+| Método | Ruta | Auth | Descripción |
+|--------|------|------|-------------|
+| POST | `/paper/orden` | 🔒 | Orden de mercado `{"coin_id", "side": "BUY"\|"SELL", "cantidad", "client_order_id"?}` |
+| GET | `/paper/billetera` | 🔒 | Saldo, posiciones valoradas, equity y P&L (realizado y no realizado) |
+| GET | `/paper/posiciones` | 🔒 | Posiciones abiertas con su valor actual |
+| GET | `/paper/historial` | 🔒 | Órdenes ejecutadas, la más reciente primero. Query: `skip`, `limit` (máx. 100) |
+| POST | `/paper/reiniciar` | 🔒 | Borra posiciones e historial y devuelve el saldo inicial |
+
+Reglas:
+
+- Solo órdenes de **mercado**, al contado y **solo largos** (sin ventas en corto ni apalancamiento).
+- **El precio lo pone el servidor**, nunca el cliente (CoinGecko, con hasta 60 s de antigüedad por la caché). Si no hay precio fiable, la orden se rechaza con 503.
+- Cada ejecución paga **slippage en contra** (`PAPER_SLIPPAGE_PCT`) y **comisión** (`PAPER_COMMISSION_PCT`); el precio medio de la posición incluye las comisiones de compra,
+  así que el P&L realizado cuadra exactamente con el saldo. Los redondeos nunca favorecen al usuario.
+- Dinero siempre `Decimal` con 8 decimales (`NUMERIC(18,8)`); la cantidad admite como máximo 8 decimales.
+- **Atomicidad:** cada orden es una transacción que bloquea la billetera del usuario (`SELECT ... FOR UPDATE`): órdenes simultáneas no pueden gastar el mismo saldo ni vender dos veces lo mismo.
+- **Idempotencia:** con `client_order_id`, reintentar la misma orden devuelve la original (200, `"repetida": true`) en vez de ejecutarla otra vez; usarlo con una orden distinta da 409.
+- Códigos: 201 ejecutada, 404 moneda desconocida, 409 saldo/posición insuficiente, 422 datos inválidos, 429 demasiadas órdenes, 503 sin precio.
+- `valoracion_completa: false` en la billetera significa que faltó el precio de alguna moneda y el equity **no** incluye esa posición.
+- Límites por usuario: `PAPER_ORDERS_PER_MINUTE` y `PAPER_RESETS_PER_HOUR`. Saldo inicial: `PAPER_INITIAL_BALANCE`.
 
 ### Sistema — `/system`
 

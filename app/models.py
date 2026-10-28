@@ -13,7 +13,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
-    BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func, text,
+    BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func, text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -97,3 +97,57 @@ class Order(Base):
     executed_qty: Mapped[Optional[Decimal]] = mapped_column(DINERO, server_default=text("0"))
     created_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+
+
+class PaperWallet(Base):
+    """Saldo simulado en USDT de un usuario (una fila por usuario)."""
+    __tablename__ = "paper_wallet"
+    __table_args__ = (CheckConstraint("balance_usdt >= 0", name="paper_wallet_balance_check"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, unique=True)
+    balance_usdt: Mapped[Decimal] = mapped_column(DINERO, nullable=False)
+    saldo_inicial: Mapped[Decimal] = mapped_column(DINERO, nullable=False)
+    creado_en: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+
+
+class PaperPosition(Base):
+    """Posición abierta (solo largos): una fila por usuario y moneda; se borra al llegar a cantidad 0."""
+    __tablename__ = "paper_positions"
+    __table_args__ = (
+        UniqueConstraint("usuario_id", "coin_id", name="uq_paper_positions_usuario_coin"),
+        CheckConstraint("cantidad > 0", name="paper_positions_cantidad_check"),
+        CheckConstraint("precio_medio > 0", name="paper_positions_precio_check"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    coin_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    cantidad: Mapped[Decimal] = mapped_column(DINERO, nullable=False)
+    precio_medio: Mapped[Decimal] = mapped_column(DINERO, nullable=False)   # incluye las comisiones de compra
+    actualizado_en: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
+
+
+class PaperTrade(Base):
+    """Cada ejecución simulada. `client_order_id` (opcional) hace idempotentes los reintentos."""
+    __tablename__ = "paper_trades"
+    __table_args__ = (
+        UniqueConstraint("usuario_id", "client_order_id", name="uq_paper_trades_cliente"),
+        CheckConstraint("side IN ('BUY', 'SELL')", name="paper_trades_side_check"),
+        CheckConstraint("cantidad > 0", name="paper_trades_cantidad_check"),
+        CheckConstraint("precio > 0", name="paper_trades_precio_check"),
+        CheckConstraint("comision >= 0", name="paper_trades_comision_check"),
+        Index("idx_paper_trades_usuario_fecha", "usuario_id", "ejecutado_en"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(Integer, ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    coin_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    side: Mapped[str] = mapped_column(String(4), nullable=False)
+    cantidad: Mapped[Decimal] = mapped_column(DINERO, nullable=False)
+    precio: Mapped[Decimal] = mapped_column(DINERO, nullable=False)          # precio ejecutado (con slippage)
+    valor: Mapped[Decimal] = mapped_column(DINERO, nullable=False)           # cantidad x precio, sin comisión
+    comision: Mapped[Decimal] = mapped_column(DINERO, nullable=False)
+    pnl_realizado: Mapped[Optional[Decimal]] = mapped_column(DINERO)         # solo en ventas
+    client_order_id: Mapped[Optional[str]] = mapped_column(String(64))
+    ejecutado_en: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())

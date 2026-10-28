@@ -93,3 +93,34 @@ def test_uvicorn_se_arranca_sin_reescribir_la_ip_del_cliente():
     assert {a for a, _ in comandos} == {"Dockerfile", "app/Procfile"}, "no se encontró algún comando de arranque"
     for archivo, linea in comandos:
         assert "--no-proxy-headers" in linea, f"{archivo} no usa --no-proxy-headers: {linea}"
+
+
+# ------------------------------------------------------------------ paper trading
+
+def test_valores_por_defecto_de_paper_trading():
+    from decimal import Decimal as D
+    cfg = _cfg()
+    cfg.validate()
+    assert (cfg.PAPER_INITIAL_BALANCE, cfg.PAPER_COMMISSION_PCT, cfg.PAPER_SLIPPAGE_PCT) == (D(10000), D("0.1"), D("0.05"))
+    assert (cfg.PAPER_ORDERS_PER_MINUTE, cfg.PAPER_RESETS_PER_HOUR) == (30, 3)
+
+
+@pytest.mark.parametrize("campo,valor", [
+    ("PAPER_INITIAL_BALANCE", 0), ("PAPER_INITIAL_BALANCE", 10**11),
+    ("PAPER_COMMISSION_PCT", -1), ("PAPER_COMMISSION_PCT", 10), ("PAPER_SLIPPAGE_PCT", 10),
+    ("PAPER_ORDERS_PER_MINUTE", 0), ("PAPER_RESETS_PER_HOUR", 0),
+])
+def test_config_de_paper_trading_invalida_impide_arrancar(campo, valor):
+    from decimal import Decimal as D
+    valor = D(valor) if campo.startswith(("PAPER_INITIAL", "PAPER_COMM", "PAPER_SLIP")) else valor
+    with pytest.raises(RuntimeError, match=campo):
+        _cfg(**{campo: valor}).validate()
+
+
+@pytest.mark.parametrize("nombre,valor", [("PAPER_INITIAL_BALANCE", "abc"), ("PAPER_SLIPPAGE_PCT", "NaN"),
+                                          ("PAPER_COMMISSION_PCT", "Infinity")])
+def test_decimales_no_numericos_o_no_finitos_se_rechazan_al_leerlos(monkeypatch, nombre, valor):
+    from app.config import _decimal
+    monkeypatch.setenv(nombre, valor)
+    with pytest.raises(RuntimeError, match=nombre):
+        _decimal(nombre, "1")

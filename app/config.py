@@ -1,5 +1,6 @@
 # app/config.py
 import os
+from decimal import Decimal, InvalidOperation
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,6 +13,18 @@ def _entero(nombre: str, defecto: int) -> int:
         return int(crudo)
     except ValueError:
         raise RuntimeError(f"{nombre} debe ser un número entero (recibido: '{crudo}')")
+
+
+def _decimal(nombre: str, defecto: str) -> Decimal:
+    """Lee un número decimal del entorno (dinero y porcentajes: nunca float)."""
+    crudo = os.getenv(nombre, defecto)
+    try:
+        valor = Decimal(crudo)
+    except InvalidOperation:
+        raise RuntimeError(f"{nombre} debe ser un número (recibido: '{crudo}')")
+    if not valor.is_finite():
+        raise RuntimeError(f"{nombre} debe ser un número finito")
+    return valor
 
 
 class Config:
@@ -62,6 +75,13 @@ class Config:
     CHAT_WINDOW_SECONDS = _entero("CHAT_WINDOW_SECONDS", 10)
     CHAT_MAX_LENGTH = _entero("CHAT_MAX_LENGTH", 500)
     CHAT_MAX_CONNECTIONS_PER_USER = _entero("CHAT_MAX_CONNECTIONS_PER_USER", 3)
+
+    # Paper trading (dinero simulado): saldo inicial en USDT, costes de cada ejecución y límites de uso.
+    PAPER_INITIAL_BALANCE = _decimal("PAPER_INITIAL_BALANCE", "10000")
+    PAPER_COMMISSION_PCT = _decimal("PAPER_COMMISSION_PCT", "0.1")     # por lado, sobre el valor (igual que el backtest)
+    PAPER_SLIPPAGE_PCT = _decimal("PAPER_SLIPPAGE_PCT", "0.05")        # en contra, por lado
+    PAPER_ORDERS_PER_MINUTE = _entero("PAPER_ORDERS_PER_MINUTE", 30)   # órdenes por usuario y minuto
+    PAPER_RESETS_PER_HOUR = _entero("PAPER_RESETS_PER_HOUR", 3)        # reinicios de cuenta por usuario y hora
 
     # Proxies de confianza delante de la app (0 = ninguno: se ignora X-Forwarded-For).
     TRUSTED_PROXY_COUNT = _entero("TRUSTED_PROXY_COUNT", 0)
@@ -122,11 +142,16 @@ class Config:
         for nombre in ("RATE_LIMIT_REQUESTS", "RATE_LIMIT_WINDOW", "LOGIN_RATE_LIMIT",
                        "REGISTER_RATE_LIMIT", "LOGIN_MAX_FAILURES", "LOGIN_LOCKOUT_SECONDS",
                        "CHAT_MAX_MESSAGES", "CHAT_WINDOW_SECONDS", "CHAT_MAX_LENGTH",
-                       "CHAT_MAX_CONNECTIONS_PER_USER"):
+                       "CHAT_MAX_CONNECTIONS_PER_USER", "PAPER_ORDERS_PER_MINUTE", "PAPER_RESETS_PER_HOUR"):
             if getattr(self, nombre) < 1:
                 raise RuntimeError(f"{nombre} debe ser mayor o igual que 1")
         if not 0 <= self.TRUSTED_PROXY_COUNT <= 10:
             raise RuntimeError("TRUSTED_PROXY_COUNT debe estar entre 0 y 10")
+        if not Decimal("1") <= self.PAPER_INITIAL_BALANCE <= Decimal("1000000000"):
+            raise RuntimeError("PAPER_INITIAL_BALANCE debe estar entre 1 y 1000000000")
+        for nombre in ("PAPER_COMMISSION_PCT", "PAPER_SLIPPAGE_PCT"):
+            if not Decimal("0") <= getattr(self, nombre) < Decimal("10"):
+                raise RuntimeError(f"{nombre} debe estar entre 0 y 10")
         if self.REDIS_URL and not self.REDIS_URL.startswith(("redis://", "rediss://", "unix://")):
             raise RuntimeError("REDIS_URL debe empezar por redis://, rediss:// o unix://")
 

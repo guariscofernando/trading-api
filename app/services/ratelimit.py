@@ -307,3 +307,19 @@ def crear_limitador(url_redis: str = "") -> Limitador:
 
 # Instancia compartida por el middleware y por la protección del login.
 limitador = crear_limitador(config.REDIS_URL)
+
+
+async def golpear_sin_bloquear(clave: str, limite: int, ventana: int) -> Optional[Resultado]:
+    """
+    `limitador.golpear` para código async: con Redis la llamada es una ida y vuelta de red y se hace
+    en un hilo para no frenar el bucle de eventos. Si el limitador falla devuelve None (se deja pasar
+    y se registra), la misma política que el middleware: un fallo del limitador no tumba la API.
+    """
+    import anyio
+    try:
+        if limitador.bloqueante:
+            return await anyio.to_thread.run_sync(limitador.golpear, clave, limite, ventana)
+        return limitador.golpear(clave, limite, ventana)
+    except Exception:
+        logger.exception("Rate limit: error al evaluar '%s'; se deja pasar", clave.split(":")[0])
+        return None
