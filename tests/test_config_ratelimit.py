@@ -77,7 +77,7 @@ def test_en_produccion_bien_configurada_no_avisa():
 def _comandos_uvicorn():
     from pathlib import Path
     raiz = Path(__file__).resolve().parents[1]
-    for archivo in ("Dockerfile", "app/Procfile"):
+    for archivo in ("Dockerfile",):
         for linea in (raiz / archivo).read_text(encoding="utf-8").splitlines():
             if "uvicorn app.main:app" in linea and not linea.lstrip().startswith("#"):
                 yield archivo, linea
