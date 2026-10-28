@@ -42,3 +42,13 @@ class SimpleCache:
 
 # Instancia global
 cache = SimpleCache()
+
+
+async def _vaciar_por_bus(_datos: dict) -> None:
+    cache.clear()
+
+
+# Vaciar el caché debe llegar a todos los procesos: cada uno tiene el suyo.
+from app.services.bus import bus  # noqa: E402
+
+bus.registrar("cache_clear", _vaciar_por_bus)

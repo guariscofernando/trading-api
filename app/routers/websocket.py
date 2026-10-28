@@ -4,6 +4,7 @@ import json
 import random
 import anyio
 from app.config import config
+from app.services.bus import bus
 from app.services.ratelimit import golpear_sin_bloquear
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -60,7 +61,10 @@ class NotificationManager:
                 del self.conexiones[usuario_id]
 
     async def notificar(self, usuario_id: int, mensaje: dict):
-        """Envía una notificación a todas las conexiones activas de ese usuario"""
+        """Envía una notificación a todas las conexiones activas de ese usuario, estén en el proceso que estén."""
+        await bus.publicar("notif", {"usuario_id": usuario_id, "mensaje": mensaje})
+
+    async def entregar_local(self, usuario_id: int, mensaje: dict):
         conexiones_muertas = []
         for ws in self.conexiones.get(usuario_id, []):
             try:
@@ -97,6 +101,10 @@ class ChatManager:
             return False
 
     async def broadcast(self, mensaje: dict):
+        """Publica el mensaje en el bus: llega a los clientes de TODOS los procesos."""
+        await bus.publicar("chat", mensaje)
+
+    async def entregar_local(self, mensaje: dict):
         conexiones = list(self.conexiones)
         resultados = await asyncio.gather(*(self._enviar(ws, mensaje) for ws in conexiones))
         for ws, ok in zip(conexiones, resultados):
@@ -122,6 +130,18 @@ def _usuario_desde_token(token: str):
 
 notification_manager = NotificationManager()
 chat_manager = ChatManager()
+
+
+async def _entregar_chat(datos: dict):
+    await chat_manager.entregar_local(datos)
+
+
+async def _entregar_notificacion(datos: dict):
+    await notification_manager.entregar_local(int(datos["usuario_id"]), datos["mensaje"])
+
+
+bus.registrar("chat", _entregar_chat)
+bus.registrar("notif", _entregar_notificacion)
 manager = ConnectionManager()
 router = APIRouter(tags=["WebSocket"])
 
@@ -240,6 +260,11 @@ async def verificar_alertas():
 
         for usuario_id in usuarios_conectados:
             try:
+                # Si el usuario tiene conexiones en varios procesos, solo el primero en llegar revisa este ciclo
+                # (ventana < 60 s: con un solo proceso siempre se permite).
+                turno = await golpear_sin_bloquear(f"alertas:{usuario_id}", 1, 50)
+                if turno is not None and not turno.permitido:
+                    continue
                 # 1. Chequear watchlist: precio objetivo alcanzado
                 items_watchlist = watchlist_dao.obtener_por_usuario_db(usuario_id)
                 if items_watchlist:

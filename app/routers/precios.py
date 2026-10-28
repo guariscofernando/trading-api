@@ -1,5 +1,6 @@
 # app/routers/precios.py
 from fastapi import APIRouter, HTTPException, Depends
+from app.services.bus import bus
 from utils.authorization import get_current_user, require_admin
 from app.services.cache import cache
 from app.services.coingecko import (
@@ -69,7 +70,8 @@ def cache_stats(admin: dict = Depends(require_admin)):
     return cache.stats()
 
 @router.delete("/cache/clear")
-def clear_cache(admin: dict = Depends(require_admin)):
-    """Limpiar el caché (requiere autenticación)"""
-    cache.clear()
+async def clear_cache(admin: dict = Depends(require_admin)):
+    """Limpiar el caché en todos los procesos (solo administradores)."""
+    cache.clear()                                   # este proceso, ya
+    await bus.publicar("cache_clear", {})           # y el resto, vía Redis si hay varios
     return {"mensaje": "Caché limpiado"}

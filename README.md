@@ -26,7 +26,7 @@ API REST para gestionar trades de criptomonedas, con autenticación JWT, anális
 - FastAPI
 - PostgreSQL 16 (Docker / docker-compose en local, [Neon](https://neon.tech) en producción)
 - SQLAlchemy 2.0 (ORM síncrono con pool de conexiones) + Alembic (migraciones), con psycopg2 como driver
-- Redis (opcional, solo para compartir los contadores del rate limit entre varias instancias)
+- Redis (opcional: necesario para varios procesos o instancias; comparte el rate limit, el chat, las notificaciones y el caché)
 - Binance Testnet (python-binance)
 - JWT (python-jose)
 - bcrypt (passlib)
@@ -139,7 +139,8 @@ COINGECKO_API_KEY=tu_api_key_coingecko
 | `REGISTER_RATE_LIMIT` | `POST /usuarios/registro` por IP y hora (por defecto `10`) |
 | `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS` | Fallos de login por (IP, usuario) antes de bloquear (por defecto `5`) y duración del bloqueo en segundos (por defecto `900`) |
 | `TRUSTED_PROXY_COUNT` | Proxies de confianza entre el cliente y la app (por defecto `0`). **Imprescindible detrás de Render/Railway/Cloudflare**; ver [Rate limit y protección del login](#rate-limit-y-protección-del-login) |
-| `REDIS_URL` | `redis://...` o `rediss://...` para compartir los contadores entre instancias (opcional; vacío = memoria del proceso) |
+| `REDIS_URL` | `redis://...` o `rediss://...` para compartir entre procesos e instancias los contadores del rate limit, el chat, las notificaciones y el vaciado del caché (opcional; vacío = memoria del proceso, solo válido con un proceso) |
+| `WEB_CONCURRENCY` | Procesos (workers) de uvicorn (por defecto `1`). Con más de uno **`REDIS_URL` es obligatorio**: la app no arranca sin él |
 | `DB_POOL_SIZE` | Conexiones que cada proceso mantiene abiertas hacia PostgreSQL (por defecto `5`) |
 | `DB_MAX_OVERFLOW` | Conexiones extra que se pueden abrir en picos (por defecto `10`) |
 | `DB_POOL_TIMEOUT` | Segundos que una petición espera una conexión libre antes de fallar (por defecto `10`) |
@@ -226,6 +227,19 @@ Con `ENVIRONMENT=production` y `TRUSTED_PROXY_COUNT=0` la app deja un aviso en e
 > ⚠️ **No uses `FORWARDED_ALLOW_IPS=*` ni `--forwarded-allow-ips='*'` con uvicorn.** Algunas guías lo recomiendan, pero uvicorn pasaría a tomar la entrada **más a la
 > izquierda** de `X-Forwarded-For` (la escribe el cliente) y bastaría cambiar esa cabecera para evadir el rate limit y el bloqueo del login. El `Dockerfile` y el `Procfile`
 > arrancan con `--no-proxy-headers` para que uvicorn no toque la IP del cliente; la única que cuenta es la que calcula `TRUSTED_PROXY_COUNT`.
+
+### Varios procesos o instancias
+
+Cada WebSocket vive en el proceso que lo aceptó. Con `REDIS_URL` todo mensaje pasa por un bus pub/sub de Redis (`app/services/bus.py`): se publica una vez y **cada proceso, el
+emisor incluido, lo entrega a sus propias conexiones**, así que no hay duplicados. Cubre el chat, las notificaciones personales (p. ej. un trade creado por HTTP en un proceso
+llega al WebSocket abierto en otro) y el vaciado del caché de precios (`DELETE /precios/cache/clear` lo vacía en todos).
+
+- Si Redis falla la API **no se cae**: los mensajes se entregan solo a las conexiones de ese proceso y la suscripción se reintenta con espera creciente (hasta 30 s) hasta recuperarse.
+- Las alertas de precio y P&L se revisan en cada proceso para sus usuarios conectados, con un turno por usuario compartido vía Redis para que no se envíen duplicadas.
+- El motor de órdenes pendientes del paper trading ya era seguro con varios procesos (ver [Paper trading](#paper-trading--paper)).
+- **Límite conocido:** el tope de conexiones de chat por usuario (`CHAT_MAX_CONNECTIONS_PER_USER`) se cuenta **por proceso**: con 2 procesos un usuario puede abrir hasta el doble. El límite de mensajes sí es global
+  (usa el mismo limitador de Redis).
+- Las suscripciones usan una conexión dedicada de Redis por proceso (además de la del limitador).
 
 ### Una instancia o varias (Redis)
 
@@ -604,8 +618,9 @@ La API se puede desplegar en plataformas como Render o Railway usando el `Docker
 - **URL de producción Render:** `https://trading-api-o9u2.onrender.com/`
 - **URL de producción Railway:** `https://trading-api-production-4205.up.railway.app/`
 - **Migraciones:** el contenedor ejecuta `alembic upgrade head` antes de iniciar `uvicorn`, así que cada despliegue deja el esquema al día. Si la migración falla, el despliegue falla en vez de servir tráfico con un esquema incorrecto. Antes del primer despliegue con esta versión conviene hacer un backup (en Neon, una *branch* de la base).
-- **Puerto y workers:** el contenedor escucha en `$PORT` (lo define la plataforma; en local, 8000) y arranca **un solo worker**: el chat, las notificaciones y las alertas viven en memoria de cada proceso.
-  Para escalar a varias instancias hace falta antes un respaldo compartido (Redis) para esas piezas; `REDIS_URL` hoy solo comparte el rate limit y el bloqueo del login.
+- **Puerto y workers:** el contenedor escucha en `$PORT` (lo define la plataforma; en local, 8000) y arranca `WEB_CONCURRENCY` procesos (por defecto **1**).
+  Para usar más hace falta `REDIS_URL` (si no, la app **se niega a arrancar**): con Redis el chat, las notificaciones y el vaciado del caché llegan a las conexiones de todos los procesos
+  e instancias (ver [Varios procesos](#varios-procesos-o-instancias)).
 - **No hay `Procfile`:** la plataforma debe usar el `Dockerfile`. Un `Procfile` arrancaría uvicorn sin migrar y con las opciones por defecto.
 - **Primer administrador:** tras el primer despliegue, regístrate y promuévete desde una shell de la instancia: `python scripts/gestionar_roles.py promover <usuario>` (ver [Roles](#roles-administradores)).
 - **Integración continua:** `.github/workflows/tests.yml` corre toda la suite (PostgreSQL y Redis reales, Python 3.12) y construye la imagen en cada PR y en cada push a `main`. Conviene activar en GitHub *Settings → Branches* la regla de exigir que pase antes de fusionar.
@@ -615,7 +630,7 @@ La API se puede desplegar en plataformas como Render o Railway usando el `Docker
   - `SECRET_KEY` distinta a la de desarrollo
   - `CORS_ORIGINS` con la URL de tu frontend
   - `TRUSTED_PROXY_COUNT` con el número de proxies delante de la app (si lo dejas en `0`, todos los usuarios compartirán un solo cupo de rate limit)
-  - `REDIS_URL` solo si ejecutas más de una instancia o worker
+  - `REDIS_URL` solo si ejecutas más de una instancia o `WEB_CONCURRENCY` mayor que 1
   - `BINANCE_API_KEY`, `BINANCE_SECRET_KEY` y `BINANCE_TESTNET=true`
 - **Región:** Binance bloquea conexiones desde ciertas regiones (por ejemplo, servidores en EE. UU.). Si el arranque falla con el error `Service unavailable from a restricted location`, elige una región de Europa o Asia para el servicio. Probado: Railway en Países Bajos y Render en Frankfurt. En Render la región no se puede cambiar en un servicio existente: hay que crear uno nuevo.
 
