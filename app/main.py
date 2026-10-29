@@ -11,6 +11,7 @@ from app.routers import trades, users, precios, analisis, websocket, dashboard, 
 from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware, instalar_filtro_de_tokens
 from app.routers.websocket import verificar_alertas
+from app.services.bus import bus
 from app.services.paper_matching import bucle_de_casamiento
 
 logger = logging.getLogger("trading-api")
@@ -153,6 +154,7 @@ def api_info():
 async def iniciar_tareas_background():
     for aviso in config.avisos_produccion():
         logger.warning(aviso)
+    await bus.iniciar()
     asyncio.create_task(verificar_alertas())
     if config.PAPER_MATCHING_ENABLED:
         # Se guarda la referencia: el bucle del event loop solo mantiene referencias débiles a las tareas.
@@ -161,6 +163,7 @@ async def iniciar_tareas_background():
 
 @app.on_event("shutdown")
 async def detener_tareas_background():
+    await bus.detener()
     tarea = getattr(app.state, "tarea_paper", None)
     if tarea is not None:
         tarea.cancel()

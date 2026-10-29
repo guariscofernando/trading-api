@@ -20,9 +20,10 @@ def test_el_contenedor_migra_antes_de_arrancar():
     assert "&&" in cmd                      # si la migración falla, no se sirve tráfico
 
 
-def test_uvicorn_no_confia_en_cabeceras_de_proxy_y_usa_un_solo_worker():
+def test_uvicorn_no_confia_en_cabeceras_de_proxy_y_los_workers_salen_de_web_concurrency():
     cmd = _cmd()
-    assert "--no-proxy-headers" in cmd and "--workers 1" in cmd
+    assert "--no-proxy-headers" in cmd
+    assert "--workers ${WEB_CONCURRENCY:-1}" in cmd            # por defecto un solo proceso
 
 
 def test_el_puerto_sale_de_la_plataforma_y_el_healthcheck_lo_sigue():

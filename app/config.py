@@ -87,6 +87,10 @@ class Config:
     PAPER_MAX_OPEN_ORDERS = _entero("PAPER_MAX_OPEN_ORDERS", 20)
     PAPER_MATCHING_ENABLED = os.getenv("PAPER_MATCHING_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
 
+    # Procesos (workers) de uvicorn. Con más de uno hace falta REDIS_URL: sin él, el rate limit, el bloqueo del
+    # login, el chat y las notificaciones serían por proceso (el Dockerfile arranca con --workers $WEB_CONCURRENCY).
+    WEB_CONCURRENCY = _entero("WEB_CONCURRENCY", 1)
+
     # Proxies de confianza delante de la app (0 = ninguno: se ignora X-Forwarded-For).
     TRUSTED_PROXY_COUNT = _entero("TRUSTED_PROXY_COUNT", 0)
     # Contadores compartidos entre instancias (opcional). Vacío = memoria del proceso.
@@ -150,6 +154,12 @@ class Config:
                        "PAPER_MATCH_INTERVAL_SECONDS", "PAPER_MAX_OPEN_ORDERS"):
             if getattr(self, nombre) < 1:
                 raise RuntimeError(f"{nombre} debe ser mayor o igual que 1")
+        if not 1 <= self.WEB_CONCURRENCY <= 64:
+            raise RuntimeError("WEB_CONCURRENCY debe estar entre 1 y 64")
+        if self.WEB_CONCURRENCY > 1 and not self.REDIS_URL:
+            raise RuntimeError(
+                "WEB_CONCURRENCY > 1 requiere REDIS_URL: sin Redis el rate limit, el bloqueo del login, el chat y "
+                "las notificaciones serían independientes en cada proceso (ver README).")
         if not 0 <= self.TRUSTED_PROXY_COUNT <= 10:
             raise RuntimeError("TRUSTED_PROXY_COUNT debe estar entre 0 y 10")
         if not Decimal("1") <= self.PAPER_INITIAL_BALANCE <= Decimal("1000000000"):
