@@ -12,6 +12,7 @@ from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware, instalar_filtro_de_tokens
 from app.routers.websocket import verificar_alertas
 from app.services.bus import bus
+from app.services.conexiones import registro
 from app.services.paper_matching import bucle_de_casamiento
 
 logger = logging.getLogger("trading-api")
@@ -164,6 +165,7 @@ async def iniciar_tareas_background():
 @app.on_event("shutdown")
 async def detener_tareas_background():
     await bus.detener()
+    await registro.cerrar()
     tarea = getattr(app.state, "tarea_paper", None)
     if tarea is not None:
         tarea.cancel()
