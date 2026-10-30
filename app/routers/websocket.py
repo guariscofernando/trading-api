@@ -2,9 +2,11 @@
 import asyncio
 import json
 import random
+import uuid
 import anyio
 from app.config import config
 from app.services.bus import bus
+from app.services.conexiones import registro
 from app.services.ratelimit import golpear_sin_bloquear
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -81,9 +83,6 @@ class ChatManager:
 
     def __init__(self):
         self.conexiones: Dict[WebSocket, dict] = {}
-
-    def conectadas_de(self, usuario_id: int) -> int:
-        return sum(1 for u in self.conexiones.values() if u["id"] == usuario_id)
 
     async def connect(self, websocket: WebSocket, usuario: dict):
         await websocket.accept()
@@ -171,6 +170,19 @@ async def websocket_precios(websocket: WebSocket):
     except WebSocketDisconnect:
         manager.disconnect(websocket)
 
+ALQUILER_CONEXION = 90     # segundos que vale el registro de una conexión de chat sin renovarse
+
+
+async def _renovar_alquiler(usuario_id: int, conn_id: str) -> None:
+    """Mientras la conexión vive, mantiene vigente su registro (si el proceso muere, vence solo)."""
+    while True:
+        await asyncio.sleep(ALQUILER_CONEXION / 3)
+        try:
+            await registro.renovar(usuario_id, conn_id, ALQUILER_CONEXION)
+        except Exception:
+            logger.exception("Chat: no se pudo renovar el registro de la conexión")
+
+
 @router.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket, token: str = ""):
     """
@@ -180,19 +192,22 @@ async def websocket_chat(websocket: WebSocket, token: str = ""):
     - Límite por USUARIO (no por conexión: abrir más pestañas no da más cupo): CHAT_MAX_MESSAGES
       mensajes cada CHAT_WINDOW_SECONDS. Los que sobran se descartan con un aviso {"tipo": "error"}.
     - Un mensaje de más de CHAT_MAX_LENGTH caracteres cierra la conexión (1009).
-    - Como máximo CHAT_MAX_CONNECTIONS_PER_USER conexiones simultáneas por usuario.
+    - Como máximo CHAT_MAX_CONNECTIONS_PER_USER conexiones simultáneas por usuario, sumando todos los procesos (con Redis).
     - Cada mensaje se emite como JSON con el autor tomado del token, no de lo que diga el cliente.
     """
     usuario, motivo = _usuario_desde_token(token)
     if usuario is None:
         await websocket.close(code=1008, reason=motivo)
         return
-    if chat_manager.conectadas_de(usuario["id"]) >= config.CHAT_MAX_CONNECTIONS_PER_USER:
+    conn_id = uuid.uuid4().hex
+    if not await registro.registrar(usuario["id"], conn_id, config.CHAT_MAX_CONNECTIONS_PER_USER, ALQUILER_CONEXION):
         await websocket.close(code=1008, reason="Demasiadas conexiones abiertas")
         return
 
-    await chat_manager.connect(websocket, usuario)
+    renovador = None
     try:
+        await chat_manager.connect(websocket, usuario)
+        renovador = asyncio.create_task(_renovar_alquiler(usuario["id"], conn_id))
         await websocket.send_json({"tipo": "conexion", "mensaje": f"Conectado al chat como {usuario['username']}"})
         while True:
             texto = (await websocket.receive_text()).strip()
@@ -214,7 +229,10 @@ async def websocket_chat(websocket: WebSocket, token: str = ""):
     except WebSocketDisconnect:
         pass
     finally:
+        if renovador is not None:
+            renovador.cancel()
         chat_manager.disconnect(websocket)
+        await registro.liberar(usuario["id"], conn_id)
 
 
 @router.websocket("/ws/notificaciones")

@@ -237,8 +237,9 @@ llega al WebSocket abierto en otro) y el vaciado del caché de precios (`DELETE 
 - Si Redis falla la API **no se cae**: los mensajes se entregan solo a las conexiones de ese proceso y la suscripción se reintenta con espera creciente (hasta 30 s) hasta recuperarse.
 - Las alertas de precio y P&L se revisan en cada proceso para sus usuarios conectados, con un turno por usuario compartido vía Redis para que no se envíen duplicadas.
 - El motor de órdenes pendientes del paper trading ya era seguro con varios procesos (ver [Paper trading](#paper-trading--paper)).
-- **Límite conocido:** el tope de conexiones de chat por usuario (`CHAT_MAX_CONNECTIONS_PER_USER`) se cuenta **por proceso**: con 2 procesos un usuario puede abrir hasta el doble. El límite de mensajes sí es global
-  (usa el mismo limitador de Redis).
+- El tope de conexiones de chat por usuario (`CHAT_MAX_CONNECTIONS_PER_USER`) cuenta **todos los procesos** (app/services/conexiones.py). Cada conexión es un registro en Redis con caducidad (90 s) que se
+  renueva mientras la conexión vive y se libera al cerrar: si un proceso muere sin cerrar sus conexiones, sus cupos vencen solos. Si Redis falla, el tope pasa a contarse por proceso hasta que vuelva.
+  El límite de mensajes también es global (mismo limitador de Redis).
 - Las suscripciones usan una conexión dedicada de Redis por proceso (además de la del limitador).
 
 ### Una instancia o varias (Redis)
@@ -559,7 +560,7 @@ ws://localhost:8000/ws/chat?token=<access_token>
 - **Límite por usuario** (no por conexión): `CHAT_MAX_MESSAGES` mensajes cada `CHAT_WINDOW_SECONDS` (por defecto 10 cada 10 s). Los que sobran se descartan y el cliente
   recibe `{"tipo": "error", "mensaje": "...", "reintentar_en": N}`; la conexión sigue abierta.
 - Un mensaje de más de `CHAT_MAX_LENGTH` caracteres (500) cierra la conexión con código `1009`. Los vacíos se ignoran.
-- Máximo `CHAT_MAX_CONNECTIONS_PER_USER` conexiones simultáneas por usuario (3).
+- Máximo `CHAT_MAX_CONNECTIONS_PER_USER` conexiones simultáneas por usuario (3), sumando todos los procesos si hay `REDIS_URL`.
 - El token solo se comprueba al conectar: si caduca con el chat abierto, la conexión sigue hasta que se cierre.
 - Los mensajes **no se guardan**: solo los reciben quienes están conectados en ese momento.
 - El token viaja en la URL, así que el servidor **tapa `token=...` en los logs de uvicorn** (`OcultarTokenEnLogs`). Cuida que un proxy o CDN delante tampoco registre
