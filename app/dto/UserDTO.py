@@ -62,3 +62,19 @@ class UsuarioLogin(BaseModel):
     def normalizar_username(cls, v):
         # El registro guarda el usuario en minúsculas: sin esto "Ana" no podía entrar con la cuenta "ana".
         return v.lower()
+
+
+class CambioPassword(BaseModel):
+    # La actual solo se compara (tope como el del login); la nueva cumple las mismas reglas que en el registro.
+    password_actual: str = Field(..., min_length=1, max_length=128)
+    password_nueva: str = Field(..., min_length=6, max_length=50)
+
+    @field_validator('password_nueva')
+    @classmethod
+    def validar_nueva(cls, v):
+        if len(v.encode("utf-8")) > MAX_BYTES_PASSWORD:
+            raise ValueError(
+                f"La contraseña no puede superar {MAX_BYTES_PASSWORD} bytes "
+                "(los emojis y las letras con tilde ocupan más de uno)"
+            )
+        return v

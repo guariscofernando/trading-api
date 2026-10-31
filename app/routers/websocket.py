@@ -13,7 +13,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.services.coingecko import obtener_precios_multiples
 from typing import List
 from typing import Dict
-from utils.authorization import decode_access_token
+from utils.authorization import decode_access_token, usuario_desde_token
 from app.dao.UserDAO import UserDAO
 from app.dao.TradeDAO import TradeDAO
 from app.dao.WatchlistDAO import WatchlistDAO
@@ -112,19 +112,8 @@ class ChatManager:
 
 
 def _usuario_desde_token(token: str):
-    """(usuario, motivo_de_rechazo). Mismas comprobaciones que get_current_user para HTTP."""
-    payload = decode_access_token(token)
-    if payload is None:
-        return None, "Token inválido o expirado"
-    user_id = payload.get("sub")
-    try:
-        user_id = int(user_id)
-    except (TypeError, ValueError):
-        return None, "Token inválido"
-    usuario = user_dao.obtener_usuario_por_id(user_id)
-    if usuario is None:
-        return None, "Usuario no encontrado"
-    return usuario, None
+    """(usuario, motivo_de_rechazo): la misma validación que las rutas http (incluye la revocación)."""
+    return usuario_desde_token(token)
 
 
 notification_manager = NotificationManager()
@@ -139,6 +128,24 @@ async def _entregar_notificacion(datos: dict):
     await notification_manager.entregar_local(int(datos["usuario_id"]), datos["mensaje"])
 
 
+async def _cerrar(websocket) -> None:
+    try:
+        await websocket.close(code=1008, reason="Sesión revocada")
+    except Exception:
+        pass        # ya estaba cerrada
+
+
+async def _cerrar_sesiones_de(datos: dict):
+    """Cierra las conexiones (chat y notificaciones) de un usuario cuyas sesiones se revocaron."""
+    usuario_id = int(datos["usuario_id"])
+    for ws, u in list(chat_manager.conexiones.items()):
+        if u["id"] == usuario_id:
+            await _cerrar(ws)
+    for ws in list(notification_manager.conexiones.get(usuario_id, [])):
+        await _cerrar(ws)
+
+
+bus.registrar("sesion_revocada", _cerrar_sesiones_de)
 bus.registrar("chat", _entregar_chat)
 bus.registrar("notif", _entregar_notificacion)
 manager = ConnectionManager()
@@ -238,20 +245,9 @@ async def websocket_chat(websocket: WebSocket, token: str = ""):
 @router.websocket("/ws/notificaciones")
 async def websocket_notificaciones(websocket: WebSocket, token: str):
     """WebSocket de notificaciones autenticado por token en query param"""
-    payload = decode_access_token(token)
-
-    if payload is None:
-        await websocket.close(code=1008, reason="Token inválido o expirado")
-        return
-
-    user_id_str = payload.get("sub")
-    if user_id_str is None:
-        await websocket.close(code=1008, reason="Token inválido")
-        return
-
-    usuario = user_dao.obtener_usuario_por_id(int(user_id_str))
+    usuario, motivo = _usuario_desde_token(token)
     if usuario is None:
-        await websocket.close(code=1008, reason="Usuario no encontrado")
+        await websocket.close(code=1008, reason=motivo)
         return
 
     usuario_id = usuario["id"]

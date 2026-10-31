@@ -57,23 +57,37 @@ def decode_access_token(token: str) -> dict:
     except JWTError:
         return None
 
+def usuario_desde_token(token: str):
+    """
+    (usuario, motivo_de_rechazo). Es LA validación de tokens: la usan las rutas http y los WebSockets.
+    Además de firma y caducidad comprueba que el token sea de la versión vigente del usuario: al cerrar sesión o
+    cambiar la contraseña la versión sube y los tokens anteriores quedan revocados al instante.
+    Los tokens sin versión (emitidos antes de existir esta comprobación) cuentan como versión 0.
+    """
+    payload = decode_access_token(token)
+    if payload is None:
+        return None, "Token inválido o expirado"
+    user_id = payload.get("sub")
+    version = payload.get("tv", 0)
+    if user_id is None or isinstance(version, bool) or not isinstance(version, int):
+        return None, "Token inválido"
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return None, "Token inválido"
+    usuario = dao.obtener_usuario_por_id(user_id)
+    if usuario is None:
+        return None, "Usuario no encontrado"
+    if version != usuario["token_version"]:
+        return None, "Sesión cerrada o revocada"
+    return usuario, None
+
+
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """Dependencia que extrae y valida el usuario actual"""
-    token = credentials.credentials
-    payload = decode_access_token(token)
-    
-    if payload is None:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
-    
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="Token inválido")
-    
-    usuario = dao.obtener_usuario_por_id(int(user_id))
-    
+    usuario, motivo = usuario_desde_token(credentials.credentials)
     if usuario is None:
-        raise HTTPException(status_code=401, detail="Usuario no encontrado")
-    
+        raise HTTPException(status_code=401, detail=motivo)
     return usuario
 
 
