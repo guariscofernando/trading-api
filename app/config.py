@@ -27,6 +27,22 @@ def _decimal(nombre: str, defecto: str) -> Decimal:
     return valor
 
 
+def _booleano(nombre: str, defecto: bool) -> bool:
+    """
+    Lee un booleano del entorno de forma ESTRICTA. Antes BINANCE_TESTNET se comparaba con "true": cualquier otra
+    cosa ("1", "True ", un typo) pasaba en silencio a operar con dinero real.
+    """
+    crudo = os.getenv(nombre)
+    if crudo is None or crudo.strip() == "":
+        return defecto
+    valor = crudo.strip().lower()
+    if valor in ("true", "1", "yes", "on"):
+        return True
+    if valor in ("false", "0", "no", "off"):
+        return False
+    raise RuntimeError(f"{nombre} debe ser true o false (recibido: '{crudo}')")
+
+
 class Config:
 
     # ENTORNO
@@ -41,7 +57,9 @@ class Config:
     ENCODE = os.getenv("ENCODE", "utf-8")
 
     # BINANCE
-    BINANCE_TESTNET = os.getenv("BINANCE_TESTNET", "true").lower() == "true"
+    BINANCE_TESTNET = _booleano("BINANCE_TESTNET", True)
+    # Operar con dinero REAL exige además esta confirmación explícita (ver validate()).
+    BINANCE_ALLOW_LIVE = _booleano("BINANCE_ALLOW_LIVE", False)
     BINANCE_API_KEY = os.getenv("BINANCE_API_KEY", "")
     BINANCE_SECRET_KEY = os.getenv("BINANCE_SECRET_KEY", "")
 
@@ -85,7 +103,13 @@ class Config:
     # Órdenes pendientes (LIMIT/STOP): cada cuánto revisa precios el motor, tope de abiertas por usuario y interruptor.
     PAPER_MATCH_INTERVAL_SECONDS = _entero("PAPER_MATCH_INTERVAL_SECONDS", 15)
     PAPER_MAX_OPEN_ORDERS = _entero("PAPER_MAX_OPEN_ORDERS", 20)
-    PAPER_MATCHING_ENABLED = os.getenv("PAPER_MATCHING_ENABLED", "true").strip().lower() not in ("0", "false", "no", "off")
+    PAPER_MATCHING_ENABLED = _booleano("PAPER_MATCHING_ENABLED", True)
+
+    # Límites por abuso: datos de mercado públicos (peticiones por IP y minuto), informes PDF (por usuario y minuto)
+    # y tamaño de la watchlist. Cada consulta nueva de mercado gasta cuota de CoinGecko o de Binance.
+    MARKET_RATE_LIMIT = _entero("MARKET_RATE_LIMIT", 30)
+    REPORT_RATE_LIMIT = _entero("REPORT_RATE_LIMIT", 10)
+    WATCHLIST_MAX_ITEMS = _entero("WATCHLIST_MAX_ITEMS", 50)
 
     # Procesos (workers) de uvicorn. Con más de uno hace falta REDIS_URL: sin él, el rate limit, el bloqueo del
     # login, el chat y las notificaciones serían por proceso (el Dockerfile arranca con --workers $WEB_CONCURRENCY).
@@ -151,9 +175,14 @@ class Config:
                        "REGISTER_RATE_LIMIT", "LOGIN_MAX_FAILURES", "LOGIN_LOCKOUT_SECONDS",
                        "CHAT_MAX_MESSAGES", "CHAT_WINDOW_SECONDS", "CHAT_MAX_LENGTH",
                        "CHAT_MAX_CONNECTIONS_PER_USER", "PAPER_ORDERS_PER_MINUTE", "PAPER_RESETS_PER_HOUR",
-                       "PAPER_MATCH_INTERVAL_SECONDS", "PAPER_MAX_OPEN_ORDERS"):
+                       "PAPER_MATCH_INTERVAL_SECONDS", "PAPER_MAX_OPEN_ORDERS",
+                       "MARKET_RATE_LIMIT", "REPORT_RATE_LIMIT", "WATCHLIST_MAX_ITEMS"):
             if getattr(self, nombre) < 1:
                 raise RuntimeError(f"{nombre} debe ser mayor o igual que 1")
+        if not self.BINANCE_TESTNET and not self.BINANCE_ALLOW_LIVE:
+            raise RuntimeError(
+                "BINANCE_TESTNET=false haría que la API opere con DINERO REAL. Si es lo que quieres, confírmalo "
+                "con BINANCE_ALLOW_LIVE=true; si no, deja BINANCE_TESTNET=true.")
         if not 1 <= self.WEB_CONCURRENCY <= 64:
             raise RuntimeError("WEB_CONCURRENCY debe estar entre 1 y 64")
         if self.WEB_CONCURRENCY > 1 and not self.REDIS_URL:

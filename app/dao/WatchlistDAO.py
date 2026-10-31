@@ -1,14 +1,27 @@
 # app/dao/WatchlistDAO.py
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.database import session_scope
-from app.models import WatchlistItem, a_dict
+from app.models import Usuario, WatchlistItem, a_dict
+
+
+class WatchlistLlena(Exception):
+    """El usuario ya tiene el máximo de monedas en su watchlist."""
 
 
 class WatchlistDAO:
 
-    def agregar_db(self, usuario_id, coin_id, precio_alerta):
+    def agregar_db(self, usuario_id, coin_id, precio_alerta, max_items=None):
+        """Con `max_items`, comprueba el tope dentro de la misma transacción y bloqueando al usuario: dos altas
+        simultáneas no pueden pasarse del máximo."""
         with session_scope() as sesion:
+            if max_items is not None:
+                sesion.execute(select(Usuario.id).where(Usuario.id == usuario_id).with_for_update())
+                actuales = sesion.execute(
+                    select(func.count()).select_from(WatchlistItem).where(WatchlistItem.usuario_id == usuario_id)
+                ).scalar_one()
+                if actuales >= max_items:
+                    raise WatchlistLlena(f"Tu watchlist ya tiene {actuales} monedas (máximo {max_items}).")
             item = WatchlistItem(usuario_id=usuario_id, coin_id=coin_id, precio_alerta=precio_alerta)
             sesion.add(item)
             sesion.flush()
