@@ -1,8 +1,10 @@
 # app/routers/precios.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Path, Query
 from app.services.bus import bus
 from utils.authorization import get_current_user, require_admin
 from app.services.cache import cache
+from app.services.limites import limitar_mercado
+from app.services.validacion import PATRON_COIN_ID, PATRON_MONEDA, lista_de_coin_ids
 from app.services.coingecko import (
     obtener_precio,
     obtener_precios_multiples,
@@ -11,10 +13,14 @@ from app.services.coingecko import (
 
 router = APIRouter(prefix="/precios", tags=["Precios"])
 
-@router.get("/multiples")
-async def get_precios_multiples(coins: str, moneda: str = "usd"):
-    """Obtiene precios de múltiples monedas (separadas por coma)"""
-    coin_list = [c.strip() for c in coins.split(",")]
+@router.get("/multiples", dependencies=[Depends(limitar_mercado)])
+async def get_precios_multiples(coins: str = Query(..., max_length=1000),
+                                moneda: str = Query("usd", pattern=PATRON_MONEDA)):
+    """Obtiene precios de múltiples monedas (separadas por coma; máximo 20, ids de CoinGecko)"""
+    try:
+        coin_list = lista_de_coin_ids(coins)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     
     datos = await obtener_precios_multiples(coin_list, moneda)
     
@@ -23,8 +29,8 @@ async def get_precios_multiples(coins: str, moneda: str = "usd"):
     
     return datos
 
-@router.get("/buscar/{query}")
-async def buscar(query: str):
+@router.get("/buscar/{query}", dependencies=[Depends(limitar_mercado)])
+async def buscar(query: str = Path(..., pattern=r"^[A-Za-z0-9 ._-]{1,50}$")):
     """Busca monedas por nombre"""
     resultados = await buscar_moneda(query)
     
@@ -33,8 +39,9 @@ async def buscar(query: str):
     
     return resultados.get("coins", [])[:10]  # Limitar a 10 resultados
 
-@router.get("/{coin_id}")
-async def get_precio(coin_id: str, moneda: str = "usd", use_cache: bool = True):
+@router.get("/{coin_id}", dependencies=[Depends(limitar_mercado)])
+async def get_precio(coin_id: str = Path(..., pattern=PATRON_COIN_ID),
+                     moneda: str = Query("usd", pattern=PATRON_MONEDA), use_cache: bool = True):
     """Obtiene el precio actual con caché opcional"""
     cache_key = f"precio_{coin_id}_{moneda}"
     

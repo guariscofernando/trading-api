@@ -8,6 +8,8 @@ from app.services.cache import cache
 from datetime import datetime
 from fpdf import FPDF
 
+from app.services.limites import limitar_informes
+
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 trade_dao = TradeDAO()
 
@@ -87,7 +89,7 @@ async def dashboard_completo(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/reporte/pdf")
-async def generar_reporte_pdf(current_user: dict = Depends(get_current_user)):
+async def generar_reporte_pdf(current_user: dict = Depends(limitar_informes)):
     """Genera un reporte en PDF real"""
     datos = await _construir_dashboard(current_user)
 

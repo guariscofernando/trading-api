@@ -140,6 +140,11 @@ COINGECKO_API_KEY=tu_api_key_coingecko
 | `LOGIN_MAX_FAILURES`, `LOGIN_LOCKOUT_SECONDS` | Fallos de login por (IP, usuario) antes de bloquear (por defecto `5`) y duración del bloqueo en segundos (por defecto `900`) |
 | `TRUSTED_PROXY_COUNT` | Proxies de confianza entre el cliente y la app (por defecto `0`). **Imprescindible detrás de Render/Railway/Cloudflare**; ver [Rate limit y protección del login](#rate-limit-y-protección-del-login) |
 | `REDIS_URL` | `redis://...` o `rediss://...` para compartir entre procesos e instancias los contadores del rate limit, el chat, las notificaciones y el vaciado del caché (opcional; vacío = memoria del proceso, solo válido con un proceso) |
+| `BINANCE_TESTNET` | `true` (por defecto) opera en la testnet. Solo acepta `true/false`, `1/0`, `yes/no`, `on/off`: cualquier otro valor (p. ej. un typo) **impide arrancar** en vez de interpretarse |
+| `BINANCE_ALLOW_LIVE` | `false` por defecto. `BINANCE_TESTNET=false` (dinero REAL) exige además `BINANCE_ALLOW_LIVE=true`; sin él la app no arranca |
+| `MARKET_RATE_LIMIT` | Consultas de mercado públicas por IP y minuto (por defecto `30`; ver [Límites por abuso](#límites-por-abuso)) |
+| `REPORT_RATE_LIMIT` | Informes PDF por usuario y minuto (por defecto `10`) |
+| `WATCHLIST_MAX_ITEMS` | Monedas máximas en la watchlist de cada usuario (por defecto `50`) |
 | `WEB_CONCURRENCY` | Procesos (workers) de uvicorn (por defecto `1`). Con más de uno **`REDIS_URL` es obligatorio**: la app no arranca sin él |
 | `DB_POOL_SIZE` | Conexiones que cada proceso mantiene abiertas hacia PostgreSQL (por defecto `5`) |
 | `DB_MAX_OVERFLOW` | Conexiones extra que se pueden abrir en picos (por defecto `10`) |
@@ -241,6 +246,23 @@ llega al WebSocket abierto en otro) y el vaciado del caché de precios (`DELETE 
   renueva mientras la conexión vive y se libera al cerrar: si un proceso muere sin cerrar sus conexiones, sus cupos vencen solos. Si Redis falla, el tope pasa a contarse por proceso hasta que vuelva.
   El límite de mensajes también es global (mismo limitador de Redis).
 - Las suscripciones usan una conexión dedicada de Redis por proceso (además de la del limitador).
+
+### Límites por abuso
+
+Además del límite general por IP, las rutas que gastan una cuota externa o CPU tienen el suyo (mismo limitador: memoria o Redis; si falla, se deja pasar y se avisa en el log):
+
+| Qué | Límite | Clave |
+|-----|--------|-------|
+| Datos de mercado públicos (`/precios/*`, `/binance/ping`, `/binance/server-time`, `/binance/price`, `/binance/prices`, `/binance/symbol-info`) | `MARKET_RATE_LIMIT` por minuto | IP (compartido entre todas esas rutas) |
+| Informe PDF (`/dashboard/reporte/pdf`) | `REPORT_RATE_LIMIT` por minuto | usuario |
+| Watchlist (`POST /analisis/watchlist`) | `WATCHLIST_MAX_ITEMS` monedas (409 al superarlo) | usuario; se comprueba bajo bloqueo, así que altas simultáneas no lo exceden |
+
+Cada consulta nueva de mercado gasta cuota de CoinGecko o Binance; sin tope, un script la agota para todos. Las peticiones inválidas (422) **también cuentan**, para que escanear identificadores no salga gratis.
+
+**Validación de entradas que acaban en servicios externos:** `coin_id` (`^[a-z0-9][a-z0-9-]{0,63}$`), `moneda` (2-10 letras), símbolos de Binance (2-20 alfanuméricos), búsqueda (1-50 caracteres sencillos) y
+`/precios/multiples` (máximo 20 monedas, 1000 caracteres, sin repetidas). Lo que no cumple da 422 **sin tocar la red**. Los `coin_id` de la watchlist se pasan a minúsculas.
+
+**Caché:** el caché en memoria está acotado a 5000 entradas: al llenarse descarta primero lo vencido y después lo más antiguo, para que un visitante no pueda agotar la memoria inventando claves.
 
 ### Una instancia o varias (Redis)
 
@@ -632,7 +654,7 @@ La API se puede desplegar en plataformas como Render o Railway usando el `Docker
   - `CORS_ORIGINS` con la URL de tu frontend
   - `TRUSTED_PROXY_COUNT` con el número de proxies delante de la app (si lo dejas en `0`, todos los usuarios compartirán un solo cupo de rate limit)
   - `REDIS_URL` solo si ejecutas más de una instancia o `WEB_CONCURRENCY` mayor que 1
-  - `BINANCE_API_KEY`, `BINANCE_SECRET_KEY` y `BINANCE_TESTNET=true`
+  - `BINANCE_API_KEY`, `BINANCE_SECRET_KEY` y `BINANCE_TESTNET=true` (dinero real exige además `BINANCE_ALLOW_LIVE=true`)
 - **Región:** Binance bloquea conexiones desde ciertas regiones (por ejemplo, servidores en EE. UU.). Si el arranque falla con el error `Service unavailable from a restricted location`, elige una región de Europa o Asia para el servicio. Probado: Railway en Países Bajos y Render en Frankfurt. En Render la región no se puede cambiar en un servicio existente: hay que crear uno nuevo.
 
 ## Notas

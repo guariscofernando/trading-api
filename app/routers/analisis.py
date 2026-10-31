@@ -1,10 +1,11 @@
 # app/routers/analisis.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from app.config import config
 from utils.authorization import get_current_user
 from app.dao.TradeDAO import TradeDAO
 from app.services.coingecko import obtener_precios_multiples
 from app.services.cache import cache
-from app.dao.WatchlistDAO import WatchlistDAO
+from app.dao.WatchlistDAO import WatchlistDAO, WatchlistLlena
 from app.dto.WatchlistDTO import WatchlistCreate, WatchlistResponse
 
 watchlist_dao = WatchlistDAO()
@@ -190,11 +191,15 @@ def agregar_a_watchlist(
     current_user: dict = Depends(get_current_user)
 ):
     """Agrega una moneda a la watchlist con alerta de precio"""
-    item_id = watchlist_dao.agregar_db(
-        usuario_id=current_user["id"],
-        coin_id=item.coin_id,
-        precio_alerta=item.precio_alerta
-    )
+    try:
+        item_id = watchlist_dao.agregar_db(
+            usuario_id=current_user["id"],
+            coin_id=item.coin_id,
+            precio_alerta=item.precio_alerta,
+            max_items=config.WATCHLIST_MAX_ITEMS,
+        )
+    except WatchlistLlena as e:
+        raise HTTPException(status_code=409, detail=str(e))
 
     items = watchlist_dao.obtener_por_usuario_db(current_user["id"])
     creado = next(i for i in items if i["id"] == item_id)
