@@ -1,5 +1,5 @@
 # app/dao/UserDAO.py
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.database import session_scope
@@ -41,3 +41,23 @@ class UserDAO:
                 return False
             usuario.rol = rol
             return True
+
+    def revocar_sesiones(self, user_id):
+        """Sube la versión de token del usuario: todos sus tokens actuales dejan de valer. Devuelve la nueva versión."""
+        with session_scope() as sesion:
+            return sesion.execute(
+                update(Usuario).where(Usuario.id == user_id)
+                .values(token_version=Usuario.token_version + 1).returning(Usuario.token_version)
+            ).scalar_one_or_none()
+
+    def cambiar_password(self, user_id, hash_actual, hash_nuevo):
+        """
+        Cambia la contraseña y revoca las sesiones, en un solo UPDATE condicionado a que el hash siga siendo el que
+        se verificó (si otra petición la cambió entremedias no se pisa). Devuelve la nueva versión, o None si no aplicó.
+        """
+        with session_scope() as sesion:
+            return sesion.execute(
+                update(Usuario).where(Usuario.id == user_id, Usuario.password_hash == hash_actual)
+                .values(password_hash=hash_nuevo, token_version=Usuario.token_version + 1)
+                .returning(Usuario.token_version)
+            ).scalar_one_or_none()

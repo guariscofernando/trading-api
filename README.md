@@ -194,6 +194,7 @@ alembic upgrade head --sql                        # muestra el SQL sin ejecutarl
 |-----|--------------------|
 | Cualquier petición (y cada conexión WebSocket nueva) | 100 cada 60 s |
 | `POST /usuarios/login` | 20 por minuto |
+| `POST /usuarios/cambiar-password` | `LOGIN_RATE_LIMIT` por minuto, más el bloqueo por fallos del login |
 | `POST /usuarios/registro` | 10 por hora |
 
 Al superarlo la API responde `429` con `Retry-After` (segundos a esperar). Las respuestas normales llevan `X-RateLimit-Limit`, `X-RateLimit-Remaining` y
@@ -341,6 +342,8 @@ La API aplica un límite de peticiones por IP (por defecto **100 por 60 segundos
 |--------|------|------|-------------|
 | POST | `/usuarios/registro` | 🌐 | Registrar usuario |
 | POST | `/usuarios/login` | 🌐 | Login, devuelve JWT |
+| POST | `/usuarios/logout` | 🔒 | Cierra todas tus sesiones: revoca los tokens y cierra tus WebSockets |
+| POST | `/usuarios/cambiar-password` | 🔒 | Exige la contraseña actual, revoca las sesiones y devuelve un token nuevo |
 | GET | `/usuarios/me` | 🔒 | Info del usuario autenticado |
 | GET | `/usuarios/{user_id}` | 🔒 | Obtener el propio perfil (404 si el ID es de otro usuario) |
 

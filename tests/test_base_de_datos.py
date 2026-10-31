@@ -109,7 +109,7 @@ def test_usuario_duplicado_devuelve_none_por_username_y_por_email(usuario):
 
 def test_usuario_se_devuelve_como_dict_con_las_mismas_claves_de_antes(usuario):
     u = UserDAO().obtener_usuario_por_id(usuario)
-    assert set(u) == {"id", "username", "email", "password_hash", "creado_en", "rol"}
+    assert set(u) == {"id", "username", "email", "password_hash", "creado_en", "rol", "token_version"}
     assert isinstance(u["creado_en"], datetime)
     assert UserDAO().obtener_usuario_por_id(999999) is None
     assert UserDAO().obtener_usuario_por_email("ana@example.com")["id"] == usuario

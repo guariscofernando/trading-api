@@ -37,6 +37,8 @@ class Usuario(Base):
     creado_en: Mapped[Optional[datetime]] = mapped_column(DateTime, server_default=func.current_timestamp())
     # 'usuario' (por defecto) o 'admin'. Nunca se asigna desde la API pública: ver scripts/gestionar_roles.py.
     rol: Mapped[str] = mapped_column(String(20), nullable=False, server_default="usuario")
+    # Se incrementa al cerrar sesión o cambiar la contraseña: los tokens emitidos con otra versión dejan de valer.
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
 
     __table_args__ = (CheckConstraint("rol IN ('usuario', 'admin')", name="usuarios_rol_check"),)
 

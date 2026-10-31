@@ -90,6 +90,7 @@ def reglas_por_defecto() -> List[Regla]:
         Regla("global", config.RATE_LIMIT_REQUESTS, config.RATE_LIMIT_WINDOW),
         Regla("login", config.LOGIN_RATE_LIMIT, 60, "POST", "/usuarios/login"),
         Regla("registro", config.REGISTER_RATE_LIMIT, 3600, "POST", "/usuarios/registro"),
+        Regla("cambiar_password", config.LOGIN_RATE_LIMIT, 60, "POST", "/usuarios/cambiar-password"),
     ]
 
 

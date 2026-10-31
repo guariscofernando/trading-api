@@ -1,9 +1,11 @@
 # app/routers/users.py
 from fastapi import APIRouter, Depends, HTTPException, Request
-from app.dto.UserDTO import UsuarioCreate, UsuarioResponse, UsuarioLogin
+from starlette.concurrency import run_in_threadpool
+from app.dto.UserDTO import CambioPassword, UsuarioCreate, UsuarioResponse, UsuarioLogin
 from app.dao.UserDAO import UserDAO
 from datetime import datetime
 from app.services import login_guard
+from app.services.bus import bus
 from app.services.ratelimit import ip_cliente
 from utils.authorization import (
     HASH_FICTICIO, create_access_token, get_current_user, hash_password, verify_password,
@@ -38,7 +40,7 @@ def login(datos: UsuarioLogin, request: Request):
     login_guard.registrar_exito(ip, datos.username)
 
     # Generar token
-    token = create_access_token(data={"sub": str(usuario["id"])})
+    token = create_access_token(data={"sub": str(usuario["id"]), "tv": usuario["token_version"]})
     
     return {
         "access_token": token,
@@ -78,6 +80,47 @@ def registrar_usuario(usuario: UsuarioCreate):
         "email": usuario.email,
         "creado_en": datetime.now().strftime("%Y-%m-%d %H:%M")
     }
+
+@router.post("/logout")
+async def logout(current_user: dict = Depends(get_current_user)):
+    """
+    Cierra TODAS tus sesiones: los tokens emitidos hasta ahora (de este y de cualquier otro dispositivo) dejan de valer
+    al instante y se cierran tus WebSockets abiertos. Para volver a entrar hay que iniciar sesión otra vez.
+    """
+    await run_in_threadpool(dao.revocar_sesiones, current_user["id"])
+    await bus.publicar("sesion_revocada", {"usuario_id": current_user["id"]})
+    return {"mensaje": "Sesiones cerradas"}
+
+
+@router.post("/cambiar-password")
+async def cambiar_password(datos: CambioPassword, request: Request, current_user: dict = Depends(get_current_user)):
+    """
+    Cambia tu contraseña. Exige la actual (un token robado no basta para quedarse con la cuenta) y revoca todas las
+    sesiones; la respuesta trae un token nuevo para seguir en este dispositivo. Los intentos con la contraseña actual
+    errónea cuentan en el mismo bloqueo que el login.
+    """
+    ip = ip_cliente(request.scope)
+    username = current_user["username"]
+    espera = await run_in_threadpool(login_guard.segundos_de_bloqueo, ip, username)
+    if espera:
+        raise HTTPException(status_code=429, detail=f"Demasiados intentos fallidos. Intenta de nuevo en {espera} segundos.",
+                            headers={"Retry-After": str(espera)})
+
+    if not await run_in_threadpool(verify_password, datos.password_actual, current_user["password_hash"]):
+        await run_in_threadpool(login_guard.registrar_fallo, ip, username)
+        raise HTTPException(status_code=403, detail="La contraseña actual no es correcta")
+    if datos.password_nueva == datos.password_actual:
+        raise HTTPException(status_code=422, detail="La contraseña nueva debe ser distinta de la actual")
+
+    nuevo_hash = await run_in_threadpool(hash_password, datos.password_nueva)
+    version = await run_in_threadpool(dao.cambiar_password, current_user["id"], current_user["password_hash"], nuevo_hash)
+    if version is None:
+        raise HTTPException(status_code=409, detail="Tu cuenta cambió mientras se procesaba la petición. Inténtalo de nuevo.")
+    await run_in_threadpool(login_guard.registrar_exito, ip, username)
+    await bus.publicar("sesion_revocada", {"usuario_id": current_user["id"]})
+    token = create_access_token(data={"sub": str(current_user["id"]), "tv": version})
+    return {"mensaje": "Contraseña cambiada; las demás sesiones se cerraron", "access_token": token, "token_type": "bearer"}
+
 
 """
 Ejercicio: Crea un endpoint /usuarios/me que devuelva la info del usuario autenticado 
