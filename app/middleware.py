@@ -93,6 +93,47 @@ def reglas_por_defecto() -> List[Regla]:
     ]
 
 
+class SecurityHeadersMiddleware:
+    """
+    Cabeceras de seguridad en TODAS las respuestas http (también 429 y errores): va como capa más externa.
+
+      X-Content-Type-Options: nosniff        el navegador no adivina tipos de contenido
+      X-Frame-Options: DENY                  la API no se incrusta en iframes (clickjacking)
+      Referrer-Policy: no-referrer           no filtra URLs (llevan ?token= en los WebSockets) a terceros
+      Cache-Control: no-store                las respuestas con datos de usuario no se guardan en cachés compartidas
+                                             (solo si la ruta no puso la suya; /static y la documentación quedan fuera)
+      Content-Security-Policy                'default-src none; frame-ancestors none' para las respuestas de la API
+      Strict-Transport-Security              solo en producción (la plataforma sirve HTTPS); un año
+    """
+    _SIN_CSP_NI_NO_STORE = ("/static", "/docs", "/redoc", "/openapi.json")
+
+    def __init__(self, app, hsts: bool = False):
+        self.app = app
+        self.hsts = hsts
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        es_api = not scope["path"].startswith(self._SIN_CSP_NI_NO_STORE)
+
+        async def enviar(mensaje):
+            if mensaje["type"] == "http.response.start":
+                h = MutableHeaders(scope=mensaje)
+                h["X-Content-Type-Options"] = "nosniff"
+                h["X-Frame-Options"] = "DENY"
+                h["Referrer-Policy"] = "no-referrer"
+                if es_api:
+                    h["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+                    if "cache-control" not in h:
+                        h["Cache-Control"] = "no-store"
+                if self.hsts:
+                    h["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+            await send(mensaje)
+
+        await self.app(scope, receive, enviar)
+
+
 class RateLimitMiddleware:
     """
     Límite de peticiones por IP real del cliente (ver app/services/ratelimit.py).

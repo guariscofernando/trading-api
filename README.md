@@ -145,6 +145,7 @@ COINGECKO_API_KEY=tu_api_key_coingecko
 | `MARKET_RATE_LIMIT` | Consultas de mercado públicas por IP y minuto (por defecto `30`; ver [Límites por abuso](#límites-por-abuso)) |
 | `REPORT_RATE_LIMIT` | Informes PDF por usuario y minuto (por defecto `10`) |
 | `WATCHLIST_MAX_ITEMS` | Monedas máximas en la watchlist de cada usuario (por defecto `50`) |
+| `ALERT_COOLDOWN_SECONDS` | Segundos mínimos entre dos alertas iguales por WebSocket (por defecto `3600`) |
 | `WEB_CONCURRENCY` | Procesos (workers) de uvicorn (por defecto `1`). Con más de uno **`REDIS_URL` es obligatorio**: la app no arranca sin él |
 | `DB_POOL_SIZE` | Conexiones que cada proceso mantiene abiertas hacia PostgreSQL (por defecto `5`) |
 | `DB_MAX_OVERFLOW` | Conexiones extra que se pueden abrir en picos (por defecto `10`) |
@@ -261,6 +262,10 @@ Cada consulta nueva de mercado gasta cuota de CoinGecko o Binance; sin tope, un 
 
 **Validación de entradas que acaban en servicios externos:** `coin_id` (`^[a-z0-9][a-z0-9-]{0,63}$`), `moneda` (2-10 letras), símbolos de Binance (2-20 alfanuméricos), búsqueda (1-50 caracteres sencillos) y
 `/precios/multiples` (máximo 20 monedas, 1000 caracteres, sin repetidas). Lo que no cumple da 422 **sin tocar la red**. Los `coin_id` de la watchlist se pasan a minúsculas.
+
+**Cabeceras de seguridad:** todas las respuestas (también 401, 404, 422, 429 y las de CORS) llevan `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` y `Referrer-Policy: no-referrer`
+(las URLs de los WebSockets llevan `?token=`). Las de la API añaden `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` y `Cache-Control: no-store` (si la ruta no puso la suya), y en producción
+`Strict-Transport-Security` (un año). `/static`, `/docs` y `/redoc` quedan fuera de CSP y no-store. El `HSTS` se envía también detrás de un proxy que termina el HTTPS: el navegador lo recibe por HTTPS.
 
 **Caché:** el caché en memoria está acotado a 5000 entradas: al llenarse descarta primero lo vencido y después lo más antiguo, para que un visitante no pueda agotar la memoria inventando claves.
 
@@ -401,6 +406,7 @@ Los `coin_id` son los IDs de CoinGecko (`bitcoin`, `ethereum`, etc.). El precio 
 | GET | `/analisis/reporte-completo` | 🔒 | Estadísticas, P&L, mejor y peor activo |
 | POST | `/analisis/watchlist` | 🔒 | Agregar moneda con precio de alerta |
 | GET | `/analisis/watchlist` | 🔒 | Ver watchlist del usuario |
+| DELETE | `/analisis/watchlist/{id}` | 🔒 | Quitar una moneda de tu watchlist (404 si no existe o es de otro usuario) |
 
 **Cálculo de P&L:** para cada activo se calcula la cantidad neta (compras − ventas), el costo neto y el valor actual (`cantidad × precio actual`). El P&L es `valor_actual − costo_total`.
 
@@ -607,7 +613,8 @@ Tipos de mensaje que se pueden recibir:
 | `precio_objetivo` | Un precio de la watchlist alcanzó o superó su `precio_alerta` |
 | `pnl_significativo` | El P&L de un activo llegó a ±10% o más |
 
-Las alertas de precio y P&L se revisan en background cada 60 segundos, solo para usuarios con una conexión activa.
+Las alertas de precio y P&L se revisan en background cada 60 segundos, solo para usuarios con una conexión activa. Una misma alerta (usuario, tipo y moneda/activo) se envía como mucho
+una vez cada `ALERT_COOLDOWN_SECONDS` (por defecto 3600): antes, mientras la condición se cumplía, el aviso se repetía cada minuto. Con Redis el cooldown es global.
 
 ## Tests
 

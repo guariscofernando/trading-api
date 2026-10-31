@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from app.routers import trades, users, precios, analisis, websocket, dashboard, binance_router, orders_router, system, riesgo_router, backtest_router, paper_router
 from app.config import config
-from app.middleware import LoggingMiddleware, RateLimitMiddleware, instalar_filtro_de_tokens
+from app.middleware import LoggingMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware, instalar_filtro_de_tokens
 from app.routers.websocket import verificar_alertas
 from app.services.bus import bus
 from app.services.conexiones import registro
@@ -45,6 +45,8 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["Retry-After", "X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
+# La más externa de todas: las cabeceras de seguridad también llegan en las respuestas de CORS, 429 y errores.
+app.add_middleware(SecurityHeadersMiddleware, hsts=config.is_production)
 
 # Incluir routers
 app.include_router(users.router)

@@ -111,6 +111,9 @@ class Config:
     REPORT_RATE_LIMIT = _entero("REPORT_RATE_LIMIT", 10)
     WATCHLIST_MAX_ITEMS = _entero("WATCHLIST_MAX_ITEMS", 50)
 
+    # Alertas por WebSocket: segundos mínimos entre dos avisos iguales (misma moneda y tipo) para un usuario.
+    ALERT_COOLDOWN_SECONDS = _entero("ALERT_COOLDOWN_SECONDS", 3600)
+
     # Procesos (workers) de uvicorn. Con más de uno hace falta REDIS_URL: sin él, el rate limit, el bloqueo del
     # login, el chat y las notificaciones serían por proceso (el Dockerfile arranca con --workers $WEB_CONCURRENCY).
     WEB_CONCURRENCY = _entero("WEB_CONCURRENCY", 1)
@@ -176,7 +179,7 @@ class Config:
                        "CHAT_MAX_MESSAGES", "CHAT_WINDOW_SECONDS", "CHAT_MAX_LENGTH",
                        "CHAT_MAX_CONNECTIONS_PER_USER", "PAPER_ORDERS_PER_MINUTE", "PAPER_RESETS_PER_HOUR",
                        "PAPER_MATCH_INTERVAL_SECONDS", "PAPER_MAX_OPEN_ORDERS",
-                       "MARKET_RATE_LIMIT", "REPORT_RATE_LIMIT", "WATCHLIST_MAX_ITEMS"):
+                       "MARKET_RATE_LIMIT", "REPORT_RATE_LIMIT", "WATCHLIST_MAX_ITEMS", "ALERT_COOLDOWN_SECONDS"):
             if getattr(self, nombre) < 1:
                 raise RuntimeError(f"{nombre} debe ser mayor o igual que 1")
         if not self.BINANCE_TESTNET and not self.BINANCE_ALLOW_LIVE:
