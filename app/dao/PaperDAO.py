@@ -11,7 +11,7 @@ import logging
 from decimal import Decimal
 from typing import Dict, List, Optional
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.database import session_scope
@@ -204,10 +204,36 @@ class PaperDAO:
             except Exception:
                 logger.exception("Paper trading: error procesando la orden pendiente %s", orden_id)
                 resumen["errores"] += 1
+                if self._anotar_fallo(orden_id):
+                    resumen["rechazadas"] += 1
                 continue
+            self._fallos.pop(orden_id, None)
             if resultado:
                 resumen[resultado] += 1
         return resumen
+
+    # Orden "venenosa": si falla con una excepción inesperada MAX_FALLOS ciclos seguidos se rechaza, en vez de
+    # reintentarse (y llenar el log) para siempre. El contador es por proceso: basta, porque solo busca cortar el bucle.
+    MAX_FALLOS = 5
+    _fallos: Dict[int, int] = {}
+
+    def _anotar_fallo(self, orden_id) -> bool:
+        """Cuenta el fallo; al llegar al tope cierra la orden como RECHAZADA. Devuelve si la cerró."""
+        self._fallos[orden_id] = self._fallos.get(orden_id, 0) + 1
+        if self._fallos[orden_id] < self.MAX_FALLOS:
+            return False
+        self._fallos.pop(orden_id, None)
+        try:
+            with session_scope() as sesion:
+                cerradas = sesion.execute(
+                    update(PaperOrder).where(PaperOrder.id == orden_id, PaperOrder.estado == "ABIERTA")
+                    .values(estado="RECHAZADA", motivo="Error interno al procesar la orden", cerrada_en=func.current_timestamp())
+                ).rowcount
+        except Exception:
+            logger.exception("Paper trading: no se pudo cerrar la orden venenosa %s", orden_id)
+            return False
+        logger.error("Paper trading: orden %s rechazada tras %d fallos internos seguidos", orden_id, self.MAX_FALLOS)
+        return bool(cerradas)
 
     @staticmethod
     def _procesar_una(orden_id, usuario_id, mercado, comision_pct, slippage_pct, saldo_inicial) -> Optional[str]:
