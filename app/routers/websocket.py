@@ -269,6 +269,16 @@ async def websocket_notificaciones(websocket: WebSocket, token: str):
     except WebSocketDisconnect:
         notification_manager.disconnect(usuario_id, websocket)
 
+async def _alerta_permitida(usuario_id: int, tipo: str, clave: str) -> bool:
+    """
+    Una misma alerta (usuario, tipo, moneda/activo) se envía como mucho una vez cada ALERT_COOLDOWN_SECONDS.
+    Antes, mientras la condición se cumplía, el aviso se repetía CADA MINUTO. Con Redis el cooldown es global.
+    Si el limitador falla se deja pasar (peor caso: avisos repetidos, como antes).
+    """
+    resultado = await golpear_sin_bloquear(f"alerta:{usuario_id}:{tipo}:{clave}", 1, config.ALERT_COOLDOWN_SECONDS)
+    return resultado is None or resultado.permitido
+
+
 async def verificar_alertas():
     """Tarea en background: revisa watchlist y P&L de todos los usuarios conectados"""
     while True:
@@ -292,7 +302,8 @@ async def verificar_alertas():
                     if precios:
                         for item in items_watchlist:
                             precio_actual = precios.get(item["coin_id"], {}).get("usd")
-                            if precio_actual is not None and precio_actual >= item["precio_alerta"]:
+                            if (precio_actual is not None and precio_actual >= item["precio_alerta"]
+                                    and await _alerta_permitida(usuario_id, "precio", item["coin_id"])):
                                 await notification_manager.notificar(usuario_id, {
                                     "tipo": "precio_objetivo",
                                     "mensaje": f"{item['coin_id']} alcanzó ${precio_actual}, tu alerta era ${item['precio_alerta']}",
@@ -311,7 +322,8 @@ async def verificar_alertas():
                     if precios_trades:
                         pnl_por_activo = _calcular_pnl_por_activo(trades, precios_trades)
                         for activo, datos in pnl_por_activo.items():
-                            if abs(datos["pnl_porcentaje"]) >= UMBRAL_PNL_SIGNIFICATIVO:
+                            if (abs(datos["pnl_porcentaje"]) >= UMBRAL_PNL_SIGNIFICATIVO
+                                    and await _alerta_permitida(usuario_id, "pnl", activo)):
                                 await notification_manager.notificar(usuario_id, {
                                     "tipo": "pnl_significativo",
                                     "mensaje": f"{activo}: P&L de {datos['pnl_porcentaje']}%",

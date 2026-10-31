@@ -1,5 +1,5 @@
 # app/dao/WatchlistDAO.py
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.database import session_scope
 from app.models import Usuario, WatchlistItem, a_dict
@@ -35,3 +35,11 @@ class WatchlistDAO:
                 .order_by(WatchlistItem.creado_en.desc(), WatchlistItem.id.desc())
             ).scalars()
             return [a_dict(f) for f in filas]
+
+    def eliminar_db(self, usuario_id, item_id) -> bool:
+        """Borra una moneda de la watchlist del usuario. False si no existe o es de otro usuario."""
+        with session_scope() as sesion:
+            borradas = sesion.execute(
+                delete(WatchlistItem).where(WatchlistItem.id == item_id, WatchlistItem.usuario_id == usuario_id)
+            ).rowcount
+            return borradas > 0

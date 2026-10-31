@@ -1,5 +1,5 @@
 # app/routers/analisis.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Path
 from app.config import config
 from utils.authorization import get_current_user
 from app.dao.TradeDAO import TradeDAO
@@ -210,3 +210,12 @@ def agregar_a_watchlist(
 def ver_watchlist(current_user: dict = Depends(get_current_user)):
     """Muestra la watchlist del usuario autenticado"""
     return watchlist_dao.obtener_por_usuario_db(current_user["id"])
+
+
+@router.delete("/watchlist/{item_id}")
+def quitar_de_watchlist(item_id: int = Path(..., ge=1, le=2_147_483_647),
+                        current_user: dict = Depends(get_current_user)):
+    """Quita una moneda de tu watchlist (404 si no existe o es de otro usuario: no revela qué IDs existen)."""
+    if not watchlist_dao.eliminar_db(current_user["id"], item_id):
+        raise HTTPException(status_code=404, detail="Elemento no encontrado")
+    return {"mensaje": "Eliminado de la watchlist", "id": item_id}
