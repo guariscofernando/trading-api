@@ -9,7 +9,7 @@ logger = logging.getLogger("trading-api")
 async def obtener_precio(coin_id: str, moneda: str = "usd") -> dict:
     cache_key = f"coingecko_precio_{coin_id}_{moneda}"
     cached = cache.get(cache_key)
-    if cached:
+    if cached is not None:      # {} también cuenta: moneda desconocida cacheada (ver abajo)
         return cached
     headers = {"x-cg-demo-api-key": config.COINGECKO_API_KEY} if config.COINGECKO_API_KEY else {}
     async with httpx.AsyncClient() as client:
@@ -26,7 +26,9 @@ async def obtener_precio(coin_id: str, moneda: str = "usd") -> dict:
 
         if response.status_code == 200:
             datos = response.json()
-            cache.set(cache_key, datos, ttl_seconds=60)
+            # Una moneda desconocida llega como {} con 200: se cachea poco rato para que repetir la consulta
+            # (a mano o en bucle) no gaste cuota de CoinGecko ni ocupe una petición saliente cada vez.
+            cache.set(cache_key, datos, ttl_seconds=60 if datos else 30)
             return datos
 
         logger.error(f"CoinGecko error {response.status_code}: {response.text}")
