@@ -31,6 +31,8 @@ app = FastAPI(
 
 # Agregar rutas html estaticas
 app.mount("/static", StaticFiles(directory="static"), name="static")
+# Interfaz web (HTML, CSS y JS sin build): /app/ con login, panel y órdenes sobre esta misma API.
+app.mount("/app", StaticFiles(directory="static/app", html=True), name="interfaz")
 
 # Middlewares. En Starlette el ÚLTIMO que se añade es el más externo, y el orden importa:
 #   CORS (externo)  ->  Logging  ->  RateLimit (interno)  ->  rutas
@@ -121,7 +123,8 @@ def raiz():
             "precios": "/precios",
             "analisis": "/analisis",
             "dashboard": "/dashboard",
-            "websocket": "/websocket"
+            "websocket": "/websocket",
+            "interfaz": "/app/"
         }
     }
 

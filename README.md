@@ -571,6 +571,18 @@ Reglas:
 | GET | `/system/metrics` | 👑 | Memoria, CPU y contador de peticiones |
 | GET | `/system/endpoints` | 👑 | Lista de todos los endpoints registrados |
 
+## Interfaz web
+
+Con la API en marcha, abre **`/app/`** (por ejemplo `http://localhost:8000/app/`): crear cuenta o entrar, valor total y resultado de la cuenta, posiciones,
+órdenes de mercado, límite y stop, órdenes abiertas con cancelación, historial y reinicio de la cuenta. Es HTML, CSS y JavaScript sin dependencias ni *build*
+(`static/app/`), servido por la misma API: no hay otro servicio que desplegar ni CORS que configurar.
+
+- **Seguridad:** `/app` lleva su propia CSP (`script-src 'self'; style-src 'self'; connect-src 'self'`, sin `unsafe-inline`), así que ni un fallo de escape puede ejecutar código inyectado.
+  Todo lo que llega del servidor se pinta con `textContent`, nunca como HTML. Los tests (`tests/test_interfaz.py`) vigilan que no se introduzca código en línea, `innerHTML`, `eval` ni recursos externos.
+- **Sesión:** el token vive en `sessionStorage` (se borra al cerrar la pestaña) y «Cerrar sesión» lo revoca en el servidor, en todos los dispositivos. Si el servidor responde 401, la interfaz vuelve al acceso.
+- **Órdenes:** cada orden lleva un `client_order_id`; si el envío falla por la red y reintentas, no se duplica.
+- Los datos se refrescan cada 20 s mientras la pestaña está visible.
+
 ## Monitoreo
 
 | Endpoint | Para qué |

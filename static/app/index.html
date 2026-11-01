@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mesa de práctica</title>
+  <link rel="stylesheet" href="app.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="barra">
+    <a class="marca" href="./">Mesa de práctica</a>
+    <div id="sesion" class="sesion" hidden>
+      <span id="usuario"></span>
+      <button type="button" id="salir" class="enlace">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <p id="aviso" class="aviso" role="status" aria-live="polite" hidden></p>
+
+  <main id="vista-acceso" class="acceso" hidden>
+    <h1>Opera con dinero simulado</h1>
+    <p class="intro">Practica compras y ventas a precios reales de criptomonedas, sin arriesgar un peso. Empiezas con 10.000 USDT.</p>
+    <div class="pestanas" role="tablist" aria-label="Acceso">
+      <button type="button" role="tab" id="tab-entrar" aria-selected="true" aria-controls="form-entrar">Entrar</button>
+      <button type="button" role="tab" id="tab-crear" aria-selected="false" aria-controls="form-crear">Crear cuenta</button>
+    </div>
+    <form id="form-entrar" class="formulario" autocomplete="on">
+      <label>Usuario <input name="username" autocomplete="username" required maxlength="50"></label>
+      <label>Contraseña <input name="password" type="password" autocomplete="current-password" required maxlength="128"></label>
+      <button type="submit" class="primario">Entrar</button>
+    </form>
+    <form id="form-crear" class="formulario" autocomplete="on" hidden>
+      <label>Usuario <input name="username" autocomplete="username" required minlength="3" maxlength="50"></label>
+      <label>Correo <input name="email" type="email" autocomplete="email" required maxlength="120"></label>
+      <label>Contraseña <input name="password" type="password" autocomplete="new-password" required minlength="6" maxlength="50">
+        <small>Entre 6 y 50 caracteres.</small></label>
+      <button type="submit" class="primario">Crear cuenta y entrar</button>
+    </form>
+  </main>
+
+  <main id="vista-mesa" class="mesa" hidden>
+    <section class="cartera" aria-labelledby="t-cartera">
+      <h2 id="t-cartera" class="solo-lectores">Resumen de la cuenta</h2>
+      <p class="etiqueta">Valor total de la cuenta</p>
+      <p id="equity" class="cifra">—</p>
+      <p id="pnl" class="variacion"></p>
+      <dl class="desglose">
+        <div><dt>Efectivo</dt><dd id="saldo">—</dd></div>
+        <div><dt>En posiciones</dt><dd id="en-posiciones">—</dd></div>
+        <div><dt>Ganancia realizada</dt><dd id="realizado">—</dd></div>
+      </dl>
+      <p id="aviso-valoracion" class="nota" hidden>Falta el precio de alguna moneda: el total no incluye esa posición.</p>
+    </section>
+
+    <aside class="lateral">
+      <form id="ticket" class="ticket" aria-labelledby="t-ticket" novalidate>
+        <h2 id="t-ticket">Nueva orden</h2>
+        <div class="lado" role="radiogroup" aria-label="Operación">
+          <input type="radio" name="side" id="lado-compra" value="BUY" checked><label for="lado-compra">Comprar</label>
+          <input type="radio" name="side" id="lado-venta" value="SELL"><label for="lado-venta">Vender</label>
+        </div>
+        <label>Moneda
+          <input name="coin_id" id="coin" list="monedas" value="bitcoin" autocomplete="off" spellcheck="false" required>
+          <datalist id="monedas"></datalist>
+        </label>
+        <label>Tipo de orden
+          <select name="tipo" id="tipo">
+            <option value="MARKET">A mercado: ahora, al precio actual</option>
+            <option value="LIMIT">Límite: solo a tu precio o mejor</option>
+            <option value="STOP">Stop: se activa si el precio llega a tu nivel</option>
+          </select>
+        </label>
+        <label>Cantidad <input name="cantidad" id="cantidad" inputmode="decimal" placeholder="0,001" autocomplete="off" required></label>
+        <label id="fila-precio" hidden>Precio en USDT <input name="precio" id="precio" inputmode="decimal" autocomplete="off"></label>
+        <p id="ayuda-tipo" class="nota"></p>
+        <div class="talon">
+          <p>Valor aproximado <strong id="estimado">—</strong></p>
+          <p class="nota">Al ejecutar se suman la comisión y el deslizamiento de precio.</p>
+          <button type="submit" id="enviar" class="primario">Comprar</button>
+        </div>
+      </form>
+
+      <section class="mercado" aria-labelledby="t-mercado">
+        <h2 id="t-mercado">Precios</h2>
+        <ul id="precios" class="precios"></ul>
+      </section>
+    </aside>
+
+    <section class="detalle">
+      <h2>Posiciones</h2>
+      <div class="tabla-envoltura">
+        <table id="tabla-posiciones">
+          <thead><tr><th scope="col">Moneda</th><th scope="col" class="num">Cantidad</th><th scope="col" class="num">Precio medio</th>
+            <th scope="col" class="num">Precio actual</th><th scope="col" class="num">Valor</th><th scope="col" class="num">Resultado</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="vacio-posiciones" class="vacio" hidden>Aún no tienes posiciones. Compra una moneda desde el panel de la derecha.</p>
+
+      <div class="pestanas" role="tablist" aria-label="Órdenes">
+        <button type="button" role="tab" id="tab-abiertas" aria-selected="true" aria-controls="panel-abiertas">Órdenes abiertas</button>
+        <button type="button" role="tab" id="tab-historial" aria-selected="false" aria-controls="panel-historial">Operaciones ejecutadas</button>
+      </div>
+      <div id="panel-abiertas" role="tabpanel" aria-labelledby="tab-abiertas">
+        <div class="tabla-envoltura">
+          <table id="tabla-abiertas">
+            <thead><tr><th scope="col">Moneda</th><th scope="col">Orden</th><th scope="col" class="num">Cantidad</th>
+              <th scope="col" class="num">Precio</th><th scope="col">Creada</th><th scope="col"><span class="solo-lectores">Acciones</span></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="vacio-abiertas" class="vacio" hidden>No hay órdenes abiertas. Una orden límite o stop espera aquí hasta que el precio la active.</p>
+      </div>
+      <div id="panel-historial" role="tabpanel" aria-labelledby="tab-historial" hidden>
+        <div class="tabla-envoltura">
+          <table id="tabla-historial">
+            <thead><tr><th scope="col">Moneda</th><th scope="col">Operación</th><th scope="col" class="num">Cantidad</th>
+              <th scope="col" class="num">Precio</th><th scope="col" class="num">Comisión</th><th scope="col" class="num">Resultado</th><th scope="col">Fecha</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="vacio-historial" class="vacio" hidden>Todavía no has ejecutado ninguna operación.</p>
+      </div>
+
+      <div class="pie-mesa">
+        <button type="button" id="reiniciar" class="enlace peligro">Reiniciar la cuenta</button>
+        <span class="nota">Borra posiciones, órdenes e historial y vuelve a 10.000 USDT.</span>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
