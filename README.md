@@ -666,6 +666,9 @@ Los tests del rate limit prueban el almacén Redis con `fakeredis` y, **si defin
 Además de las variables de la sección [Configuración](#configuración) (`SECRET_KEY`, `ALGORITHM`, etc.), no se necesita
 conexión a Binance ni a CoinGecko para correr la suite.
 
+Los tests se ejecutan en **orden aleatorio** (`pytest-randomly`): cada ejecución imprime `Using --randomly-seed=NNN`; si un test falla
+solo con cierto orden, repítelo con `python -m pytest -p randomly --randomly-seed=NNN`. Para desactivarlo: `-p no:randomly`.
+
 ## Deploy
 
 La API se puede desplegar en plataformas como Render o Railway usando el `Dockerfile` del proyecto.
