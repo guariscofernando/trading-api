@@ -39,6 +39,7 @@ packaging==26.3
 passlib==1.7.4
 pillow==12.3.0
 pluggy==1.6.0
+prometheus_client==0.26.0
 propcache==0.5.4
 psutil==7.2.2
 psycopg2-binary==2.9.13
@@ -55,8 +56,8 @@ python-jose==3.5.0
 python_binance==1.0.37
 pytz==2026.4
 PyYAML==6.0.3
-regex==2026.9.10
 redis==8.1.0
+regex==2026.9.10
 requests==2.34.2
 rsa==4.9.1
 six==1.17.0

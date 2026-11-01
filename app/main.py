@@ -5,13 +5,15 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
+from starlette.concurrency import run_in_threadpool
 from fastapi.exceptions import RequestValidationError
 from app.routers import trades, users, precios, analisis, websocket, dashboard, binance_router, orders_router, system, riesgo_router, backtest_router, paper_router
 from app.config import config
 from app.middleware import LoggingMiddleware, RateLimitMiddleware, SecurityHeadersMiddleware, instalar_filtro_de_tokens
 from app.routers.websocket import verificar_alertas
 from app.services.bus import bus
+from app.services.metricas import exportar, token_valido
 from app.services.conexiones import registro
 from app.services.paper_matching import bucle_de_casamiento
 
@@ -126,6 +128,51 @@ def raiz():
 @app.get("/health")
 def health_check():
     return {"status": "ok", "version": config.APP_VERSION}
+
+@app.get("/ready", include_in_schema=False)
+async def ready():
+    """Listo para recibir tráfico: la base responde (y Redis, si se usa). 503 si no; /health solo dice que el proceso vive."""
+    fallos = []
+    try:
+        await run_in_threadpool(_ping_db)
+    except Exception:
+        fallos.append("db")
+    if config.REDIS_URL:
+        try:
+            await _ping_redis()
+        except Exception:
+            fallos.append("redis")
+    if fallos:
+        return JSONResponse(status_code=503, content={"status": "no_listo", "fallan": fallos})
+    return {"status": "listo"}
+
+
+def _ping_db():
+    from sqlalchemy import text
+    from app.database import engine
+    with engine.connect() as c:
+        c.execute(text("SELECT 1"))
+
+
+async def _ping_redis():
+    import redis.asyncio as aioredis
+    cliente = aioredis.from_url(config.REDIS_URL, socket_connect_timeout=2, socket_timeout=2)
+    try:
+        await cliente.ping()
+    finally:
+        await cliente.aclose()
+
+
+@app.get("/metrics", include_in_schema=False)
+def metricas(request: Request):
+    """Métricas Prometheus. Desactivado (404) sin METRICS_TOKEN; con él exige 'Authorization: Bearer <token>'."""
+    if not config.METRICS_TOKEN:
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    if not token_valido(request.headers.get("authorization", ""), config.METRICS_TOKEN):
+        return JSONResponse(status_code=401, content={"detail": "No autorizado"}, headers={"WWW-Authenticate": "Bearer"})
+    cuerpo, tipo = exportar()
+    return Response(content=cuerpo, media_type=tipo)
+
 
 @app.get("/info")
 def api_info():

@@ -25,6 +25,8 @@ from typing import List, Tuple
 from app.config import config
 from app.services.ratelimit import limitador
 
+from app.services.metricas import LOGIN_BLOQUEOS
+
 logger = logging.getLogger("trading-api")
 
 MAX_LARGO_USUARIO = 64    # el usuario forma parte de la clave: se acota para no guardar texto arbitrario
@@ -55,6 +57,7 @@ def registrar_fallo(ip: str, username: str) -> None:
     for clave, tope, nombre in _cubos(ip, username):
         fallos, _ = limitador.contar(clave, config.LOGIN_LOCKOUT_SECONDS)
         if fallos == tope:       # solo al cruzar el umbral: un aviso por bloqueo, no uno por intento
+            LOGIN_BLOQUEOS.inc()
             logger.warning("Login bloqueado por %d fallos (%s): ip=%s", fallos, nombre, ip)
 
 

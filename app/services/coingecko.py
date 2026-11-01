@@ -3,6 +3,7 @@ import httpx
 import logging
 from app.services.cache import cache
 from app.config import config
+from app.services.metricas import COINGECKO
 
 logger = logging.getLogger("trading-api")
 
@@ -24,6 +25,7 @@ async def obtener_precio(coin_id: str, moneda: str = "usd") -> dict:
             timeout=10.0
         )
 
+        COINGECKO.labels("ok" if response.status_code == 200 else "error_http").inc()
         if response.status_code == 200:
             datos = response.json()
             # Una moneda desconocida llega como {} con 200: se cachea poco rato para que repetir la consulta
@@ -55,6 +57,7 @@ async def obtener_precios_multiples(coin_ids: list, moneda: str = "usd") -> dict
             timeout=10.0
         )
 
+        COINGECKO.labels("ok" if response.status_code == 200 else "error_http").inc()
         if response.status_code == 200:
             datos = response.json()
             cache.set(cache_key, datos, ttl_seconds=60)

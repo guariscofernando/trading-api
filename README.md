@@ -571,6 +571,28 @@ Reglas:
 | GET | `/system/metrics` | 👑 | Memoria, CPU y contador de peticiones |
 | GET | `/system/endpoints` | 👑 | Lista de todos los endpoints registrados |
 
+## Monitoreo
+
+| Endpoint | Para qué |
+|---|---|
+| `GET /health` | El proceso está vivo (sin tocar la base). Para el *liveness* de la plataforma. |
+| `GET /ready` | Listo para tráfico: responde la base y, si hay `REDIS_URL`, Redis. 503 con la lista de lo que falla. Úsalo como *health check* del deploy. |
+| `GET /metrics` | Métricas Prometheus. Exige `Authorization: Bearer <METRICS_TOKEN>`; sin `METRICS_TOKEN` está desactivado (404). |
+
+Métricas: `http_peticiones_total` y `http_duracion_segundos` (por plantilla de ruta, no por URL), `paper_ordenes_procesadas_total{resultado}`,
+`paper_ciclos_total{resultado}`, `paper_ultimo_ciclo_ok_timestamp`, `coingecko_peticiones_total{resultado}`, `login_bloqueos_total`
+y `sesiones_revocadas_total`.
+
+Alertas que conviene crear (sintaxis Prometheus; en Grafana Cloud son equivalentes):
+
+- Motor de órdenes parado: `time() - paper_ultimo_ciclo_ok_timestamp > 4 * <PAPER_MATCH_INTERVAL_SECONDS>`
+- Errores 5xx: `sum(rate(http_peticiones_total{estado=~"5.."}[5m])) > 0.1`
+- CoinGecko fallando: `rate(coingecko_peticiones_total{resultado="error_http"}[5m]) / rate(coingecko_peticiones_total[5m]) > 0.3`
+- Ataque de fuerza bruta: `increase(login_bloqueos_total[10m]) > 20`
+- Latencia p95: `histogram_quantile(0.95, sum by (le) (rate(http_duracion_segundos_bucket[5m]))) > 2`
+
+Las métricas son **por proceso**: con `WEB_CONCURRENCY>1` cada scrape lee un proceso distinto. Para métricas exactas, una sola instancia.
+
 ## WebSockets
 
 | Ruta | Auth | Descripción |
