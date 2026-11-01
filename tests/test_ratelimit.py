@@ -556,3 +556,13 @@ def test_websocket_con_redis_caido_sigue_limitando_en_local(client, monkeypatch)
     monkeypatch.setattr(config, "RATE_LIMIT_REQUESTS", 2)
     assert [_conectar_ws(client) for _ in range(3)] == [True, True, False]
     assert degradado.degradado is True
+
+
+@pytest.mark.parametrize("inicio", [100.3, 100.9, 127.5, 63.7, 31.2, 1000.1, 4095.99])
+def test_el_tiempo_restante_nunca_supera_la_ventana_aunque_el_reloj_cruce_una_potencia_de_dos(inicio):
+    """Regresión: con reloj monotónico cerca de 2^n, (a + 60) - a daba 60.0000000000000x y el techo 61."""
+    reloj = Reloj()
+    reloj.t = inicio
+    m = AlmacenMemoria(reloj=reloj)
+    assert m.incrementar("k", 60) == (1, 60)
+    assert m.consultar("k") == (1, 60)
