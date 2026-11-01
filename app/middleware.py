@@ -45,6 +45,9 @@ def instalar_filtro_de_tokens() -> None:
             registro.addFilter(OcultarTokenEnLogs())
 
 
+from app.services.metricas import DURACION, PETICIONES, ruta_de
+
+
 class LoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         start_time = time.time()
@@ -65,6 +68,10 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             f"- {response.status_code} - {duration:.3f}s"
         )
         
+        ruta = ruta_de(request.scope)
+        PETICIONES.labels(request.method, ruta, str(response.status_code)).inc()
+        DURACION.labels(request.method, ruta).observe(duration)
+
         # Agregar headers de diagnóstico
         response.headers["X-Process-Time"] = str(duration)
         response.headers["X-API-Version"] = config.APP_VERSION

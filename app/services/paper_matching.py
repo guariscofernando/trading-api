@@ -18,6 +18,8 @@ from app.config import config
 from app.dao.PaperDAO import PaperDAO
 from app.services import paper_trading as pt
 
+from app.services.metricas import CICLOS, ORDENES, ULTIMO_CICLO_OK
+
 logger = logging.getLogger("trading-api")
 
 
@@ -31,9 +33,13 @@ async def un_ciclo(dao: PaperDAO = None) -> dict:
     if not precios:
         logger.warning("Paper trading: sin precios para %d moneda(s) con órdenes abiertas", len(monedas))
         return {"ejecutadas": 0, "rechazadas": 0, "errores": 0}
-    return await anyio.to_thread.run_sync(
+    resumen = await anyio.to_thread.run_sync(
         dao.procesar_pendientes, precios, config.PAPER_COMMISSION_PCT, config.PAPER_SLIPPAGE_PCT,
         config.PAPER_INITIAL_BALANCE)
+    for resultado, n in resumen.items():
+        if n:
+            ORDENES.labels(resultado).inc(n)
+    return resumen
 
 
 async def bucle_de_casamiento() -> None:
@@ -41,8 +47,11 @@ async def bucle_de_casamiento() -> None:
     while True:
         try:
             await un_ciclo()
+            CICLOS.labels("ok").inc()
+            ULTIMO_CICLO_OK.set_to_current_time()
         except asyncio.CancelledError:
             raise
         except Exception:
+            CICLOS.labels("error").inc()
             logger.exception("Paper trading: error en el motor de órdenes pendientes")
         await asyncio.sleep(config.PAPER_MATCH_INTERVAL_SECONDS)

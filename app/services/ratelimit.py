@@ -102,6 +102,15 @@ def ip_cliente(scope: dict, proxies_confiables: Optional[int] = None) -> str:
 
 # --------------------------------------------------------------------------- almacenes
 
+def _segundos_restantes(resta: float) -> int:
+    """
+    Segundos enteros (redondeo hacia arriba, mínimo 1) hasta el vencimiento. Se redondea antes a milisegundos: con
+    relojes flotantes (a + 60) - a puede dar 60.000000000000014 cuando a + 60 cruza una potencia de dos, y el techo
+    daba 61 en una ventana de 60 s.
+    """
+    return max(1, math.ceil(round(resta, 3)))
+
+
 class AlmacenMemoria:
     """Contadores en el proceso, con tope de tamaño y limpieza de claves vencidas."""
 
@@ -136,7 +145,7 @@ class AlmacenMemoria:
                 registro = [0, ahora + ventana]
                 self._datos[clave] = registro
             registro[0] += 1
-            return registro[0], max(1, math.ceil(registro[1] - ahora))
+            return registro[0], _segundos_restantes(registro[1] - ahora)
 
     def consultar(self, clave: str) -> Tuple[int, int]:
         """Lee sin sumar. (0, 0) si la clave no existe o ya venció."""
@@ -145,7 +154,7 @@ class AlmacenMemoria:
             registro = self._datos.get(clave)
             if registro is None or registro[1] <= ahora:
                 return 0, 0
-            return registro[0], max(1, math.ceil(registro[1] - ahora))
+            return registro[0], _segundos_restantes(registro[1] - ahora)
 
     def borrar(self, clave: str) -> None:
         with self._cerrojo:

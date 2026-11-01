@@ -6,6 +6,7 @@ from app.dao.UserDAO import UserDAO
 from datetime import datetime
 from app.services import login_guard
 from app.services.bus import bus
+from app.services.metricas import SESIONES_REVOCADAS
 from app.services.ratelimit import ip_cliente
 from utils.authorization import (
     HASH_FICTICIO, create_access_token, get_current_user, hash_password, verify_password,
@@ -88,6 +89,7 @@ async def logout(current_user: dict = Depends(get_current_user)):
     al instante y se cierran tus WebSockets abiertos. Para volver a entrar hay que iniciar sesión otra vez.
     """
     await run_in_threadpool(dao.revocar_sesiones, current_user["id"])
+    SESIONES_REVOCADAS.inc()
     await bus.publicar("sesion_revocada", {"usuario_id": current_user["id"]})
     return {"mensaje": "Sesiones cerradas"}
 
@@ -117,6 +119,7 @@ async def cambiar_password(datos: CambioPassword, request: Request, current_user
     if version is None:
         raise HTTPException(status_code=409, detail="Tu cuenta cambió mientras se procesaba la petición. Inténtalo de nuevo.")
     await run_in_threadpool(login_guard.registrar_exito, ip, username)
+    SESIONES_REVOCADAS.inc()
     await bus.publicar("sesion_revocada", {"usuario_id": current_user["id"]})
     token = create_access_token(data={"sub": str(current_user["id"]), "tv": version})
     return {"mensaje": "Contraseña cambiada; las demás sesiones se cerraron", "access_token": token, "token_type": "bearer"}

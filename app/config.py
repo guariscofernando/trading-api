@@ -105,6 +105,10 @@ class Config:
     PAPER_MAX_OPEN_ORDERS = _entero("PAPER_MAX_OPEN_ORDERS", 20)
     PAPER_MATCHING_ENABLED = _booleano("PAPER_MATCHING_ENABLED", True)
 
+    # Monitoreo: GET /metrics (formato Prometheus) exige "Authorization: Bearer <METRICS_TOKEN>". Sin token está
+    # desactivado (404): no se expone nada por defecto.
+    METRICS_TOKEN = os.getenv("METRICS_TOKEN", "").strip()
+
     # Límites por abuso: datos de mercado públicos (peticiones por IP y minuto), informes PDF (por usuario y minuto)
     # y tamaño de la watchlist. Cada consulta nueva de mercado gasta cuota de CoinGecko o de Binance.
     MARKET_RATE_LIMIT = _entero("MARKET_RATE_LIMIT", 30)
