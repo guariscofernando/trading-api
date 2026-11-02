@@ -114,6 +114,10 @@ class SecurityHeadersMiddleware:
       Strict-Transport-Security              solo en producción (la plataforma sirve HTTPS); un año
     """
     _SIN_CSP_NI_NO_STORE = ("/static", "/docs", "/redoc", "/openapi.json")
+    # La interfaz web (/app) lleva su propia política: solo scripts y estilos de este mismo origen (nada en línea),
+    # llamadas únicamente a esta API, y sin incrustarse en otros sitios.
+    CSP_INTERFAZ = ("default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; "
+                    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
     def __init__(self, app, hsts: bool = False):
         self.app = app
@@ -123,7 +127,9 @@ class SecurityHeadersMiddleware:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        es_api = not scope["path"].startswith(self._SIN_CSP_NI_NO_STORE)
+        ruta = scope["path"]
+        es_interfaz = ruta == "/app" or ruta.startswith("/app/")
+        es_api = not es_interfaz and not ruta.startswith(self._SIN_CSP_NI_NO_STORE)
 
         async def enviar(mensaje):
             if mensaje["type"] == "http.response.start":
@@ -131,6 +137,10 @@ class SecurityHeadersMiddleware:
                 h["X-Content-Type-Options"] = "nosniff"
                 h["X-Frame-Options"] = "DENY"
                 h["Referrer-Policy"] = "no-referrer"
+                if es_interfaz:
+                    h["Content-Security-Policy"] = self.CSP_INTERFAZ
+                    if "cache-control" not in h:
+                        h["Cache-Control"] = "no-cache"          # se revalida siempre: una versión nueva llega al recargar
                 if es_api:
                     h["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
                     if "cache-control" not in h:
