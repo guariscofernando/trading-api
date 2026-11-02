@@ -33,9 +33,9 @@ button, input, select { font: inherit; color: inherit; }
 .solo-lectores { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 [hidden] { display: none !important; }
 
-.barra { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .9rem clamp(1rem, 4vw, 2.5rem); border-bottom: 1px solid var(--regla); }
+.barra { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .25rem 1rem; padding: .9rem clamp(1rem, 4vw, 2.5rem); border-bottom: 1px solid var(--regla); }
 .marca { font-weight: 700; letter-spacing: -0.01em; color: var(--tinta); text-decoration: none; }
-.sesion { display: flex; gap: 1rem; align-items: center; color: var(--apagado); }
+.sesion { display: flex; flex-wrap: wrap; gap: 0 1rem; align-items: center; color: var(--apagado); }
 .enlace { background: none; border: 0; padding: .25rem 0; color: var(--cobalto); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .enlace:hover { color: var(--cobalto-oscuro); }
 .enlace.peligro { color: var(--pierde); }
@@ -47,6 +47,12 @@ button, input, select { font: inherit; color: inherit; }
 .nota { color: var(--apagado); font-size: .875rem; margin: .35rem 0 0; }
 .etiqueta { color: var(--apagado); margin: 0; }
 .vacio { color: var(--apagado); margin: .75rem 0 1.5rem; max-width: 60ch; }
+
+/* diálogo de cambio de contraseña */
+.dialogo { width: min(26rem, calc(100vw - 2rem)); padding: 1.5rem; border: 1px solid var(--regla); border-radius: var(--radio); background: var(--hoja); color: var(--tinta); box-shadow: 0 2px 0 var(--regla), 0 18px 40px rgba(10, 20, 30, .25); }
+.dialogo::backdrop { background: rgba(10, 20, 30, .55); }
+.acciones { display: flex; justify-content: flex-end; align-items: center; gap: 1.25rem; }
+.error-formulario { margin: 0; padding: .6rem .75rem; border-radius: var(--radio); background: color-mix(in srgb, var(--pierde) 14%, var(--hoja)); border: 1px solid var(--pierde); }
 
 /* acceso */
 .acceso { max-width: 30rem; margin: clamp(2rem, 8vh, 5rem) auto; padding: 0 1rem; }

@@ -87,6 +87,7 @@
 
   function cerrarLocal(mensaje) {
     clearInterval(estado.temporizador);
+    if ($("dialogo-clave").open) $("dialogo-clave").close();
     estado.token = null; estado.usuario = null;
     guardar(CLAVE_TOKEN, null);
     mostrar("acceso");
@@ -129,6 +130,44 @@
     try { await api("/usuarios/logout", { metodo: "POST" }); } catch (e) { /* si falla igual se cierra aquí */ }
     cerrarLocal("");
     avisar("Cerraste sesión en todos tus dispositivos.", "ok");
+  }
+
+  // ------------------------------------------------------------------ cambio de contraseña
+  function errorClave(texto) {
+    const e = $("error-clave");
+    e.textContent = texto || "";
+    e.hidden = !texto;
+  }
+
+  function abrirClave() {
+    $("form-clave").reset();
+    errorClave("");
+    $("dialogo-clave").showModal();
+    $("clave-actual").focus();
+  }
+
+  async function guardarClave(ev) {
+    ev.preventDefault();
+    const actual = $("clave-actual").value, nueva = $("clave-nueva").value, repetida = $("clave-repetir").value;
+    if (!actual) return errorClave("Escribe tu contraseña actual.");
+    if (nueva.length < 6 || nueva.length > 50) return errorClave("La contraseña nueva debe tener entre 6 y 50 caracteres.");
+    if (nueva === actual) return errorClave("La contraseña nueva debe ser distinta de la actual.");
+    if (nueva !== repetida) return errorClave("Las contraseñas nuevas no coinciden.");
+    const boton = $("guardar-clave");
+    boton.disabled = true;
+    try {
+      const r = await api("/usuarios/cambiar-password", { metodo: "POST", cuerpo: { password_actual: actual, password_nueva: nueva } });
+      // El servidor revocó todas las sesiones, incluida esta: se sigue con el token nuevo que trae la respuesta.
+      estado.token = r.access_token;
+      guardar(CLAVE_TOKEN, r.access_token);
+      $("form-clave").reset();
+      $("dialogo-clave").close();
+      avisar("Contraseña cambiada. Se cerraron tus sesiones en los demás dispositivos.", "ok");
+    } catch (e) {
+      if (!e.silencioso) errorClave(e.message);
+    } finally {
+      boton.disabled = false;
+    }
   }
 
   // ------------------------------------------------------------------ pestañas
@@ -343,6 +382,9 @@
     $("form-entrar").addEventListener("submit", (e) => enviarAcceso(e, false));
     $("form-crear").addEventListener("submit", (e) => enviarAcceso(e, true));
     $("salir").addEventListener("click", salir);
+    $("abrir-clave").addEventListener("click", abrirClave);
+    $("cancelar-clave").addEventListener("click", () => $("dialogo-clave").close());
+    $("form-clave").addEventListener("submit", guardarClave);
     $("ticket").addEventListener("submit", enviarOrden);
     for (const id of ["tipo", "lado-compra", "lado-venta"]) $(id).addEventListener("change", actualizarFormulario);
     for (const id of ["coin", "cantidad", "precio"]) $(id).addEventListener("input", actualizarEstimado);
