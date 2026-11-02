@@ -63,3 +63,22 @@ def test_no_se_puede_salir_de_la_carpeta_de_la_interfaz(client):
 
 def test_la_portada_de_la_api_anuncia_la_interfaz(client):
     assert client.get("/").json()["endpoints"]["interfaz"] == "/app/"
+
+
+# ---------------------------------------------------------------- Fase 18: cambio de contraseña
+
+def test_la_interfaz_trae_el_formulario_de_cambio_de_contrasena():
+    html = (CARPETA / "index.html").read_text(encoding="utf-8")
+    for requerido in ('id="abrir-clave"', 'id="dialogo-clave"', 'name="password_actual"', 'name="password_nueva"', 'id="clave-repetir"'):
+        assert requerido in html
+    # las tres contraseñas son campos de contraseña con el autocompletado correcto (gestores de contraseñas)
+    assert html.count('type="password"') >= 3 + 2     # acceso (1) + registro (1) + las tres del diálogo
+    assert 'autocomplete="current-password" required maxlength="128"' in html and 'autocomplete="new-password"' in html
+
+
+def test_el_js_cambia_la_contrasena_con_el_endpoint_y_adopta_el_token_nuevo():
+    js = (CARPETA / "app.js").read_text(encoding="utf-8")
+    assert '"/usuarios/cambiar-password"' in js
+    assert "estado.token = r.access_token" in js and "guardar(CLAVE_TOKEN, r.access_token)" in js
+    assert "password_actual: actual, password_nueva: nueva" in js
+    assert "repetir" not in js.split("cuerpo:")[-1].split("}")[0]      # la repetición es solo del cliente: no se envía

@@ -12,11 +12,28 @@
     <a class="marca" href="./">Mesa de práctica</a>
     <div id="sesion" class="sesion" hidden>
       <span id="usuario"></span>
+      <button type="button" id="abrir-clave" class="enlace">Cambiar contraseña</button>
       <button type="button" id="salir" class="enlace">Cerrar sesión</button>
     </div>
   </header>
 
   <p id="aviso" class="aviso" role="status" aria-live="polite" hidden></p>
+
+  <dialog id="dialogo-clave" class="dialogo" aria-labelledby="t-clave">
+    <form id="form-clave" class="formulario" method="dialog" novalidate>
+      <h2 id="t-clave">Cambiar contraseña</h2>
+      <p class="nota">Al cambiarla se cierran tus sesiones en los demás dispositivos. En este sigues dentro.</p>
+      <label>Contraseña actual <input name="password_actual" id="clave-actual" type="password" autocomplete="current-password" required maxlength="128"></label>
+      <label>Contraseña nueva <input name="password_nueva" id="clave-nueva" type="password" autocomplete="new-password" required minlength="6" maxlength="50">
+        <small>Entre 6 y 50 caracteres, distinta de la actual.</small></label>
+      <label>Repite la contraseña nueva <input name="repetir" id="clave-repetir" type="password" autocomplete="new-password" required maxlength="50"></label>
+      <p id="error-clave" class="error-formulario" role="alert" hidden></p>
+      <div class="acciones">
+        <button type="button" id="cancelar-clave" class="enlace">Cancelar</button>
+        <button type="submit" id="guardar-clave" class="primario">Guardar contraseña</button>
+      </div>
+    </form>
+  </dialog>
 
   <main id="vista-acceso" class="acceso" hidden>
     <h1>Opera con dinero simulado</h1>
